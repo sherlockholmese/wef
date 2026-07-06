@@ -128,6 +128,15 @@ std::string bytesToHex(const std::vector<unsigned char>& bytes) {
     return text;
 }
 
+std::string bytesToAscii(const std::vector<unsigned char>& bytes) {
+    std::string text;
+    text.reserve(bytes.size());
+    for (const unsigned char byte : bytes) {
+        text.push_back(byte >= 0x20 && byte <= 0x7e ? static_cast<char>(byte) : '.');
+    }
+    return text;
+}
+
 bool readBytes(DbgSession& session, ULONG64 address, ULONG64 size, std::vector<unsigned char>& bytes) {
     if (size == 0 || size > 0xffffffffULL) {
         return false;
@@ -197,31 +206,6 @@ std::string chunkFlags(USHORT flags) {
     return text;
 }
 
-char chunkGlyph(bool busy, bool free, bool virt) {
-    if (virt) {
-        return 'V';
-    }
-    if (busy && free) {
-        return 'M';
-    }
-    return busy ? 'A' : 'F';
-}
-
-std::string chunkGlyphColor(char glyph) {
-    switch (glyph) {
-    case 'A':
-        return "green";
-    case 'F':
-        return "yellow";
-    case 'V':
-        return "magenta";
-    case 'M':
-        return "cyan";
-    default:
-        return "gray";
-    }
-}
-
 struct ChunkStats {
     ULONG64 busyCount = 0;
     ULONG64 freeCount = 0;
@@ -247,44 +231,6 @@ ChunkStats summarizeChunks(const std::vector<HeapChunk>& chunks) {
         }
     }
     return stats;
-}
-
-void printChunkMap(const Output& out, const std::vector<HeapChunk>& chunks, ULONG64 width) {
-    if (chunks.empty()) {
-        return;
-    }
-
-    width = std::max<ULONG64>(16, std::min<ULONG64>(width, 120));
-    const ULONG64 buckets = std::min<ULONG64>(width, static_cast<ULONG64>(chunks.size()));
-    const ULONG64 step = (static_cast<ULONG64>(chunks.size()) + buckets - 1) / buckets;
-
-    std::string plain = "  map  ";
-    std::string dml = "  " + dmlColor("map", "gray") + "  ";
-    for (ULONG64 bucket = 0; bucket < buckets; ++bucket) {
-        const ULONG64 begin = bucket * step;
-        const ULONG64 end = std::min<ULONG64>(begin + step, static_cast<ULONG64>(chunks.size()));
-        bool hasBusy = false;
-        bool hasFree = false;
-        bool hasVirtual = false;
-        for (ULONG64 i = begin; i < end; ++i) {
-            hasBusy = hasBusy || ((chunks[static_cast<size_t>(i)].flags & 0x01) != 0);
-            hasFree = hasFree || ((chunks[static_cast<size_t>(i)].flags & 0x01) == 0);
-            hasVirtual = hasVirtual || ((chunks[static_cast<size_t>(i)].flags & 0x08) != 0);
-        }
-
-        const char glyph = chunkGlyph(hasBusy, hasFree, hasVirtual);
-        plain.push_back(glyph);
-        dml += dmlColor(std::string(1, glyph), chunkGlyphColor(glyph));
-    }
-
-    out.dmlLine(plain, dml);
-    out.dmlLine(
-        "  legend  A=busy F=free V=virtual M=mixed",
-        "  " + dmlColor("legend", "gray") + "  " +
-            dmlColor("A", "green") + "=busy " +
-            dmlColor("F", "yellow") + "=free " +
-            dmlColor("V", "magenta") + "=virtual " +
-            dmlColor("M", "cyan") + "=mixed");
 }
 
 std::string heapFlags(ULONG flags) {
@@ -486,6 +432,91 @@ void printChunkRow(const Output& out, ULONG index, const HeapChunk& chunk) {
         dmlColor(usableText, "white") + "  " +
         dmlColor(flagsText, color);
     out.dmlLine(line, dml);
+}
+
+std::string chunkState(const HeapChunk& chunk) {
+    if ((chunk.flags & 0x08) != 0) {
+        return "virtual";
+    }
+    return (chunk.flags & 0x01) != 0 ? "allocated" : "free";
+}
+
+std::string chunkStateColor(const HeapChunk& chunk) {
+    if ((chunk.flags & 0x08) != 0) {
+        return "magenta";
+    }
+    return (chunk.flags & 0x01) != 0 ? "green" : "yellow";
+}
+
+void printGefStyleChunk(DbgSession& session, const Output& out, ULONG64 index, const HeapChunk& chunk, ULONG64 peekBytes) {
+    const std::string indexText = formatHex(index, 2);
+    const std::string headerText = formatAddress(chunk.address);
+    const std::string userText = formatAddress(chunk.userAddress);
+    const std::string nextText = formatAddress(chunk.address + chunk.size);
+    const std::string sizeText = "0x" + formatHex(chunk.size);
+    const std::string usableText = "0x" + formatHex(chunk.usableSize);
+    const ULONG64 entryUnit = chunk.sizeUnits == 0 ? 0 : chunk.size / chunk.sizeUnits;
+    const std::string prevText = "0x" + formatHex(static_cast<ULONG64>(chunk.previousSize) * entryUnit);
+    const std::string flagsText = chunkFlags(chunk.flags);
+    const std::string stateText = chunkState(chunk);
+    const std::string color = chunkStateColor(chunk);
+
+    const std::string plain =
+        "  " + indexText + "  Chunk(addr=" + headerText +
+        ", user=" + userText +
+        ", size=" + sizeText +
+        ", flags=" + flagsText + ")";
+    const std::string dml =
+        "  " + dmlColor(indexText, "gray") + "  " +
+        dmlColor("Chunk", color) +
+        "(addr=" + dmlColor(headerText, "white") +
+        ", user=" + dmlColor(userText, "cyan") +
+        ", size=" + dmlColor(sizeText, "white") +
+        ", flags=" + dmlColor(flagsText, color) + ")";
+    out.dmlLine(plain, dml);
+
+    out.dmlLine(
+        "      [" + stateText + "] prev=" + prevText + " usable=" + usableText + " next=" + nextText,
+        "      " + dmlColor("[" + stateText + "]", color) +
+            " prev=" + dmlColor(prevText, "white") +
+            " usable=" + dmlColor(usableText, "white") +
+            " next=" + dmlColor(nextText, "white"));
+
+    if (peekBytes == 0 || chunk.usableSize == 0) {
+        return;
+    }
+
+    std::vector<unsigned char> bytes;
+    const ULONG64 readSize = std::min<ULONG64>(chunk.usableSize, peekBytes);
+    if (!readBytes(session, chunk.userAddress, readSize, bytes) || bytes.empty()) {
+        out.dmlLine(
+            "      contents <unreadable>",
+            "      " + dmlColor("contents", "gray") + " " + dmlColor("<unreadable>", "red"));
+        return;
+    }
+
+    const std::string hex = bytesToHex(bytes);
+    const std::string ascii = bytesToAscii(bytes);
+    out.dmlLine(
+        "      contents " + hex + "  |" + ascii + "|",
+        "      " + dmlColor("contents", "gray") + " " +
+            dmlColor(hex, "white") + "  " +
+            dmlColor("|" + ascii + "|", "cyan"));
+}
+
+void printGefStyleHeapLayout(DbgSession& session, const Output& out, const std::vector<HeapChunk>& chunks, ULONG64 peekBytes) {
+    ULONG64 currentSegment = 0;
+    ULONG64 index = 0;
+    for (const auto& chunk : chunks) {
+        if (chunk.segment != currentSegment) {
+            currentSegment = chunk.segment;
+            out.dmlLine(
+                "  segment " + formatAddress(currentSegment),
+                "  " + dmlColor("segment", "gray") + " " + dmlColor(formatAddress(currentSegment), "cyan"));
+        }
+        printGefStyleChunk(session, out, index, chunk, peekBytes);
+        ++index;
+    }
 }
 
 void printDetailedChunk(const Output& out, const HeapChunk& chunk, ULONG64 requested) {
@@ -973,12 +1004,14 @@ HRESULT runHeapVis(DbgSession& session, const Output& out, const std::vector<std
     }
 
     for (const auto& heap : heaps) {
+        const ULONG64 maxChunks = configGetNumber("heap.vis.max_chunks", 160);
+        const ULONG64 peekBytes = configGetNumber("heap.vis.peek_bytes", 32);
         const auto chunks = collectHeapChunks(
             session,
             out,
             heap.address,
             configGetNumber("heap.vis.max_segments", 16),
-            configGetNumber("heap.vis.max_chunks", 160));
+            maxChunks);
         const auto stats = summarizeChunks(chunks);
         const std::string title = "  heap " + formatHex(heap.index, 2) + "  " + formatAddress(heap.address) +
             "  chunks=" + formatHex(static_cast<ULONG64>(chunks.size())) +
@@ -999,29 +1032,13 @@ HRESULT runHeapVis(DbgSession& session, const Output& out, const std::vector<std
                 dmlCommandLink("flags", "!wef.heaps flags " + formatAddress(heap.address)) + " " +
                 dmlCommandLink("validate", "!wef.heaps validate " + formatAddress(heap.address)));
 
-        printChunkMap(out, chunks, configGetNumber("heap.vis.width", 80));
-
-        std::vector<HeapChunk> notable = chunks;
-        std::sort(notable.begin(), notable.end(), [](const HeapChunk& left, const HeapChunk& right) {
-            return left.size > right.size;
-        });
-        const ULONG64 detailCount = std::min<ULONG64>(configGetNumber("heap.vis.detail_count", 8), static_cast<ULONG64>(notable.size()));
-        if (detailCount != 0) {
-            out.line("  largest chunks");
-            out.line("  #    header             user               size        usable      flags");
-            out.line("  --   -----------------  -----------------  ----------  ----------  ------------------------------");
-        }
-        for (ULONG64 i = 0; i < detailCount; ++i) {
-            printChunkRow(out, static_cast<ULONG>(i), notable[static_cast<size_t>(i)]);
-        }
-        if (chunks.size() > detailCount) {
-            out.dmlLine(
-                "  ... use !wef.heaps chunks " + formatAddress(heap.address) + " for the full table",
-                "  " + dmlColor("...", "gray") + " use " + dmlCommandLink("full chunks table", "!wef.heaps chunks " + formatAddress(heap.address)));
-        }
-
         if (chunks.empty()) {
             out.warning("no chunks found for heap " + formatAddress(heap.address) + "; LFH or symbols may hide backend chunks\n");
+        } else {
+            printGefStyleHeapLayout(session, out, chunks, peekBytes);
+            if (static_cast<ULONG64>(chunks.size()) >= maxChunks) {
+                out.warning("heap visualization may be truncated; raise heap.vis.max_chunks to show more chunks\n");
+            }
         }
         out.blank();
     }

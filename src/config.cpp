@@ -18,6 +18,7 @@ std::map<std::string, std::string>& store() {
         {"heap.find.max_chunk_read", "65536"},
         {"heap.find.max_hits", "80"},
         {"heap.vis.max_chunks", "160"},
+        {"heap.vis.peek_bytes", "32"},
         {"heap.vis.detail_count", "8"},
         {"heap.vis.max_segments", "16"},
         {"heap.vis.width", "80"},
