@@ -46,7 +46,7 @@ bool parseId(std::string_view text, ULONG& value) {
     return true;
 }
 
-HRESULT addBreakpoint(DbgSession& session, const Output& out, std::string_view name, ULONG64 address) {
+HRESULT addBreakpointImpl(DbgSession& session, const Output& out, std::string_view name, ULONG64 address) {
     const TargetInfo target = session.targetInfo();
     if (!target.userMode || !target.live) {
         out.error("name-break requires a live user-mode target\n");
@@ -90,6 +90,14 @@ HRESULT addBreakpoint(DbgSession& session, const Output& out, std::string_view n
     return S_OK;
 }
 
+}
+
+HRESULT addNamedBreakpoint(
+    DbgSession& session,
+    const Output& out,
+    std::string_view name,
+    ULONG64 address) {
+    return addBreakpointImpl(session, out, name, address);
 }
 
 HRESULT runNameBreak(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
@@ -197,7 +205,7 @@ HRESULT runNameBreak(DbgSession& session, const Output& out, const std::vector<s
         out.error("could not evaluate address: " + addressExpression + "\n");
         return S_OK;
     }
-    return addBreakpoint(session, out, name, address);
+    return addNamedBreakpoint(session, out, name, address);
 }
 
 }

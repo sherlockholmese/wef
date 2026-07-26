@@ -44,6 +44,7 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
     out.line("  !wef.arch get|list|set <x86|x64|arm64>");
     out.line("  !wef.eval <expression> [expression]");
     out.line("  !wef.process_status");
+    out.line("  !wef.pie info|breakpoint|list|delete ...");
     out.line("  !wef.pe_info [module]");
     out.line("  !wef.iat [module] [filter]            (also: !wef.got)");
     out.line("  !wef.canary [module]");
@@ -281,6 +282,10 @@ HRESULT Eval(IDebugClient* client, PCSTR args) {
 
 HRESULT ProcessStatus(IDebugClient* client, PCSTR args) {
     return executeCommand(client, args, runProcessStatus);
+}
+
+HRESULT Pie(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runPie);
 }
 
 HRESULT Checksec(IDebugClient* client, PCSTR args) {

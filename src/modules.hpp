@@ -10,5 +10,6 @@ HRESULT runXfiles(DbgSession& session, const Output& out, const std::vector<std:
 HRESULT runArch(DbgSession& session, const Output& out, const std::vector<std::string>& args);
 HRESULT runEval(DbgSession& session, const Output& out, const std::vector<std::string>& args);
 HRESULT runProcessStatus(DbgSession& session, const Output& out, const std::vector<std::string>& args);
+HRESULT runPie(DbgSession& session, const Output& out, const std::vector<std::string>& args);
 
 }

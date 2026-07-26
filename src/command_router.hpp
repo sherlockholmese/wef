@@ -40,6 +40,7 @@ HRESULT Xfiles(IDebugClient* client, PCSTR args);
 HRESULT Arch(IDebugClient* client, PCSTR args);
 HRESULT Eval(IDebugClient* client, PCSTR args);
 HRESULT ProcessStatus(IDebugClient* client, PCSTR args);
+HRESULT Pie(IDebugClient* client, PCSTR args);
 HRESULT Checksec(IDebugClient* client, PCSTR args);
 HRESULT PeInfo(IDebugClient* client, PCSTR args);
 HRESULT Iat(IDebugClient* client, PCSTR args);

@@ -23,6 +23,7 @@ EXPORTS
     arch
     eval
     process_status
+    pie
     checksec
     pe_info
     iat

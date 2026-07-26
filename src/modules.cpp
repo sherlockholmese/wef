@@ -1,5 +1,6 @@
 #include "modules.hpp"
 
+#include "breakpoints.hpp"
 #include "memory.hpp"
 
 #include <algorithm>
@@ -541,6 +542,75 @@ HRESULT runProcessStatus(DbgSession& session, const Output& out, const std::vect
     out.field("PEB", formatAddress(peb));
     out.field("TEB", formatAddress(teb));
     return S_OK;
+}
+
+HRESULT runPie(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (args.empty()) {
+        out.line("usage: !wef.pie info [module]|breakpoint <offset> [module] [name]|list|delete <name|id>");
+        return S_OK;
+    }
+    if (args[0] == "list") {
+        return runNameBreak(session, out, {"list"});
+    }
+    if (args[0] == "delete") {
+        if (args.size() != 2) {
+            out.line("usage: !wef.pie delete <name|id>");
+            return S_OK;
+        }
+        return runNameBreak(session, out, {"delete", args[1]});
+    }
+
+    const bool info = args[0] == "info";
+    const bool breakpoint = args[0] == "breakpoint" || args[0] == "break";
+    if ((!info && !breakpoint) ||
+        (info && args.size() > 2) ||
+        (breakpoint && (args.size() < 2 || args.size() > 4))) {
+        out.line("usage: !wef.pie info [module]|breakpoint <offset> [module] [name]|list|delete <name|id>");
+        return S_OK;
+    }
+
+    ULONG index = 0;
+    ULONG64 base = 0;
+    const std::string moduleArgument =
+        info ? (args.size() == 2 ? args[1] : std::string()) :
+        (args.size() >= 3 ? args[2] : std::string());
+    if (moduleArgument.empty()) {
+        if (FAILED(session.symbols()->GetModuleByIndex(0, &base))) {
+            out.error("could not resolve the main module\n");
+            return S_OK;
+        }
+    } else if (!findModule(session, moduleArgument, index, base)) {
+        out.error("could not resolve module: " + moduleArgument + "\n");
+        return S_OK;
+    }
+    const std::string module = moduleNameByIndex(session, index, base);
+
+    if (info) {
+        out.heading("PIE");
+        out.field("Module", module);
+        out.field("Base", formatAddress(base));
+        out.field("Rebase expression", module + "+<offset>");
+        return S_OK;
+    }
+
+    ULONG64 offset = 0;
+    if (!parseNumber(args[1], offset)) {
+        out.error("invalid module-relative offset: " + args[1] + "\n");
+        return S_OK;
+    }
+    if (offset > std::numeric_limits<ULONG64>::max() - base) {
+        out.error("module-relative address overflows\n");
+        return S_OK;
+    }
+    const ULONG64 address = base + offset;
+    const std::string name =
+        args.size() == 4 ? args[3] :
+        "pie_" + module + "_" + formatHex(offset);
+    out.heading("PIE Breakpoint");
+    out.field("Module", module);
+    out.field("Base", formatAddress(base));
+    out.field("Offset", "0x" + formatHex(offset));
+    return addNamedBreakpoint(session, out, name, address);
 }
 
 }

@@ -30,6 +30,9 @@ hexdump @rsp L80
 !wef.arch list
 !wef.eval @rsp @rip
 !wef.process_status
+!wef.pie info wef_fixture
+!wef.pie breakpoint 0 wef_fixture pie_smoke
+!wef.pie delete pie_smoke
 !wef.pe_info wef_fixture
 !wef.iat wef_fixture kernel
 !wef.got wef_fixture kernel

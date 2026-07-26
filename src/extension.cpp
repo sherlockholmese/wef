@@ -100,6 +100,10 @@ WEF_EXPORT HRESULT CALLBACK process_status(IDebugClient* client, PCSTR args) {
     return wef::commands::ProcessStatus(client, args);
 }
 
+WEF_EXPORT HRESULT CALLBACK pie(IDebugClient* client, PCSTR args) {
+    return wef::commands::Pie(client, args);
+}
+
 WEF_EXPORT HRESULT CALLBACK checksec(IDebugClient* client, PCSTR args) {
     return wef::commands::Checksec(client, args);
 }
