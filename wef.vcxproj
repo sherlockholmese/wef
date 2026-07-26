@@ -44,13 +44,13 @@
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;WEF_EXPORTS;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;WEF_EXPORTS;NOMINMAX;WIN32_LEAN_AND_MEAN;ZYDIS_STATIC_BUILD;ZYCORE_STATIC_BUILD;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ExceptionHandling>Sync</ExceptionHandling>
       <DebugInformationFormat>OldStyle</DebugInformationFormat>
       <MultiProcessorCompilation>false</MultiProcessorCompilation>
-      <AdditionalIncludeDirectories>$(DbgSdkDir)inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\zydis;$(DbgSdkDir)inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -68,13 +68,13 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;WEF_EXPORTS;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;WEF_EXPORTS;NOMINMAX;WIN32_LEAN_AND_MEAN;ZYDIS_STATIC_BUILD;ZYCORE_STATIC_BUILD;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ExceptionHandling>Sync</ExceptionHandling>
       <DebugInformationFormat>OldStyle</DebugInformationFormat>
       <MultiProcessorCompilation>false</MultiProcessorCompilation>
-      <AdditionalIncludeDirectories>$(DbgSdkDir)inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)third_party\zydis;$(DbgSdkDir)inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -89,6 +89,9 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="third_party\zydis\Zydis.c">
+      <CompileAs>CompileAsC</CompileAs>
+    </ClCompile>
     <ClCompile Include="src\aliases.cpp" />
     <ClCompile Include="src\breakpoints.cpp" />
     <ClCompile Include="src\command_router.cpp" />
@@ -97,6 +100,7 @@
     <ClCompile Include="src\dbg_session.cpp" />
     <ClCompile Include="src\extension.cpp" />
     <ClCompile Include="src\heap.cpp" />
+    <ClCompile Include="src\instruction.cpp" />
     <ClCompile Include="src\memory.cpp" />
     <ClCompile Include="src\modules.cpp" />
     <ClCompile Include="src\mutation.cpp" />
@@ -106,6 +110,7 @@
     <ClCompile Include="src\ttd.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="third_party\zydis\Zydis.h" />
     <ClInclude Include="src\aliases.hpp" />
     <ClInclude Include="src\breakpoints.hpp" />
     <ClInclude Include="src\command_router.hpp" />
@@ -113,6 +118,7 @@
     <ClInclude Include="src\context.hpp" />
     <ClInclude Include="src\dbg_session.hpp" />
     <ClInclude Include="src\heap.hpp" />
+    <ClInclude Include="src\instruction.hpp" />
     <ClInclude Include="src\memory.hpp" />
     <ClInclude Include="src\modules.hpp" />
     <ClInclude Include="src\mutation.hpp" />
@@ -122,6 +128,8 @@
     <ClInclude Include="src\ttd.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="third_party\zydis\LICENSE-Zycore.txt" />
+    <None Include="third_party\zydis\LICENSE-Zydis.txt" />
     <None Include="wef.def" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -1,5 +1,7 @@
 #include "mutation.hpp"
 
+#include "instruction.hpp"
+
 #include <array>
 #include <cctype>
 #include <cstdlib>
@@ -291,12 +293,12 @@ HRESULT runNop(DbgSession& session, const Output& out, const std::vector<std::st
     }
 
     if (!explicitCount) {
-        ULONG64 next = address;
-        if (session.disassembleLine(address, next).empty() || next <= address) {
+        DecodedInstruction instruction;
+        if (!decodeInstruction(session, address, instruction)) {
             out.error("could not determine instruction size at " + formatAddress(address) + "\n");
             return S_OK;
         }
-        byteCount = next - address;
+        byteCount = instruction.length;
     }
     if (byteCount == 0 || byteCount > std::numeric_limits<ULONG>::max()) {
         out.error("invalid nop byte count\n");
@@ -348,12 +350,12 @@ HRESULT runSkipi(DbgSession& session, const Output& out, const std::vector<std::
 
     const ULONG64 original = current;
     for (ULONG64 i = 0; i < count; ++i) {
-        ULONG64 next = current;
-        if (session.disassembleLine(current, next).empty() || next <= current) {
+        DecodedInstruction instruction;
+        if (!decodeInstruction(session, current, instruction)) {
             out.error("could not determine instruction size at " + formatAddress(current) + "\n");
             return S_OK;
         }
-        current = next;
+        current += instruction.length;
     }
 
     if (!session.writeRegister(ipName, current)) {

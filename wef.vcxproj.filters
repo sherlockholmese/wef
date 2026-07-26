@@ -15,6 +15,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="third_party\zydis\Zydis.c"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\aliases.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\breakpoints.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\command_router.cpp"><Filter>Source Files</Filter></ClCompile>
@@ -23,6 +24,7 @@
     <ClCompile Include="src\dbg_session.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\extension.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\heap.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\instruction.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\memory.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\modules.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\mutation.cpp"><Filter>Source Files</Filter></ClCompile>
@@ -32,6 +34,7 @@
     <ClCompile Include="src\ttd.cpp"><Filter>Source Files</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="third_party\zydis\Zydis.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\aliases.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\breakpoints.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\command_router.hpp"><Filter>Header Files</Filter></ClInclude>
@@ -39,6 +42,7 @@
     <ClInclude Include="src\context.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\dbg_session.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\heap.hpp"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\instruction.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\memory.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\modules.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\mutation.hpp"><Filter>Header Files</Filter></ClInclude>
@@ -48,6 +52,8 @@
     <ClInclude Include="src\ttd.hpp"><Filter>Header Files</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <None Include="third_party\zydis\LICENSE-Zycore.txt" />
+    <None Include="third_party\zydis\LICENSE-Zydis.txt" />
     <None Include="wef.def"><Filter>Definition Files</Filter></None>
   </ItemGroup>
 </Project>
