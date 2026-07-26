@@ -43,6 +43,9 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
     out.line("  !wef.arch get|list|set <x86|x64|arm64>");
     out.line("  !wef.eval <expression> [expression]");
     out.line("  !wef.process_status");
+    out.line("  !wef.pe_info [module]");
+    out.line("  !wef.iat [module] [filter]            (also: !wef.got)");
+    out.line("  !wef.canary [module]");
     out.line("  !wef.pattern create|search|offset ...");
     out.line("  !wef.patch byte|word|dword|qword|string|hex ...");
     out.line("  !wef.nop [addr] [L<byte-count>|--n <count>|--b <count>]");
@@ -277,6 +280,18 @@ HRESULT ProcessStatus(IDebugClient* client, PCSTR args) {
 
 HRESULT Checksec(IDebugClient* client, PCSTR args) {
     return executeCommand(client, args, runChecksec);
+}
+
+HRESULT PeInfo(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runPeInfo);
+}
+
+HRESULT Iat(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runIat);
+}
+
+HRESULT Canary(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runCanary);
 }
 
 HRESULT Pattern(IDebugClient* client, PCSTR args) {

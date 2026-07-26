@@ -11,7 +11,7 @@ struct AliasMapping {
     const char* target;
 };
 
-constexpr std::array<AliasMapping, 29> kAliases = {{
+constexpr std::array<AliasMapping, 33> kAliases = {{
     {"ctx", "!wef.ctx"},
     {"context", "!wef.context"},
     {"registers", "!wef.registers"},
@@ -27,6 +27,10 @@ constexpr std::array<AliasMapping, 29> kAliases = {{
     {"arch", "!wef.arch"},
     {"wef-eval", "!wef.eval"},
     {"process-status", "!wef.process_status"},
+    {"pe-info", "!wef.pe_info"},
+    {"iat", "!wef.iat"},
+    {"got", "!wef.iat"},
+    {"canary", "!wef.canary"},
     {"pattern", "!wef.pattern"},
     {"patch", "!wef.patch"},
     {"nop", "!wef.nop"},

@@ -25,6 +25,10 @@ hexdump @rsp L80
 !wef.arch list
 !wef.eval @rsp @rip
 !wef.process_status
+!wef.pe_info wef_fixture
+!wef.iat wef_fixture kernel
+!wef.got wef_fixture kernel
+!wef.canary wef_fixture
 r @$t2 = @rip
 r @$t3 = @efl
 r efl = @efl | 0x40

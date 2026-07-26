@@ -100,6 +100,22 @@ WEF_EXPORT HRESULT CALLBACK checksec(IDebugClient* client, PCSTR args) {
     return wef::commands::Checksec(client, args);
 }
 
+WEF_EXPORT HRESULT CALLBACK pe_info(IDebugClient* client, PCSTR args) {
+    return wef::commands::PeInfo(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK iat(IDebugClient* client, PCSTR args) {
+    return wef::commands::Iat(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK got(IDebugClient* client, PCSTR args) {
+    return wef::commands::Iat(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK canary(IDebugClient* client, PCSTR args) {
+    return wef::commands::Canary(client, args);
+}
+
 WEF_EXPORT HRESULT CALLBACK pattern(IDebugClient* client, PCSTR args) {
     return wef::commands::Pattern(client, args);
 }
