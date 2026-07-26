@@ -168,6 +168,60 @@ bool hasGuardOrNoAccess(ULONG protect) {
     return (protect & PAGE_GUARD) != 0 || (protect & 0xff) == PAGE_NOACCESS;
 }
 
+bool parseCountValue(std::string_view text, ULONG64& value) {
+    const std::string copy(text);
+    try {
+        size_t used = 0;
+        const int base = copy.starts_with("0x") || copy.starts_with("0X") ? 16 : 10;
+        value = std::stoull(copy, &used, base);
+        return used == copy.size();
+    } catch (...) {
+        return false;
+    }
+}
+
+std::string escapedBytes(const std::vector<unsigned char>& bytes) {
+    std::string result;
+    result.reserve(bytes.size() * 4);
+    for (const unsigned char byte : bytes) {
+        result += "\\x" + byteToHex(byte);
+    }
+    return result;
+}
+
+bool readBytes(DbgSession& session, const Output& out, ULONG64 address, ULONG64 length, std::vector<unsigned char>& bytes) {
+    if (length == 0 || length > std::numeric_limits<ULONG>::max()) {
+        out.error("invalid byte count\n");
+        return false;
+    }
+    bytes.assign(static_cast<size_t>(length), 0);
+    ULONG read = 0;
+    const HRESULT hr = session.readVirtual(address, bytes.data(), static_cast<ULONG>(length), &read);
+    if (FAILED(hr) || static_cast<ULONG64>(read) != length) {
+        out.error(
+            "read failed at " + formatAddress(address) + ": " + formatHResult(hr) +
+            " (" + std::to_string(read) + "/" + std::to_string(length) + " bytes)\n");
+        return false;
+    }
+    return true;
+}
+
+bool writeVerified(DbgSession& session, const Output& out, ULONG64 address, const std::vector<unsigned char>& bytes) {
+    ULONG written = 0;
+    const HRESULT hr = session.writeVirtual(address, bytes.data(), static_cast<ULONG>(bytes.size()), &written);
+    if (FAILED(hr) || static_cast<size_t>(written) != bytes.size()) {
+        out.error("write failed at " + formatAddress(address) + ": " + formatHResult(hr) + "\n");
+        return false;
+    }
+
+    std::vector<unsigned char> verification;
+    if (!readBytes(session, out, address, bytes.size(), verification) || verification != bytes) {
+        out.error("write verification failed at " + formatAddress(address) + "\n");
+        return false;
+    }
+    return true;
+}
+
 }
 
 std::string previewString(DbgSession& session, ULONG64 address) {
@@ -592,6 +646,154 @@ HRESULT runSearchPattern(DbgSession& session, const Output& out, const std::vect
         out.warning("no matches found\n");
     } else if (hits >= maxHits) {
         out.warning("search results truncated; increase -max or search.max_hits\n");
+    }
+    return S_OK;
+}
+
+HRESULT runPrintFormat(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (args.empty()) {
+        out.line("usage: !wef.print_format [--lang <format>] [-l <length>] <address> [length]");
+        return S_OK;
+    }
+
+    ULONG64 address = 0;
+    ULONG64 length = 32;
+    std::string language = "hex";
+    bool gotAddress = false;
+    bool gotLength = false;
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (args[i] == "--lang" && i + 1 < args.size()) {
+            language = args[++i];
+            continue;
+        }
+        if ((args[i] == "-l" || args[i] == "--length") && i + 1 < args.size()) {
+            if (!parseCountValue(args[++i], length)) {
+                out.error("invalid byte count: " + args[i] + "\n");
+                return S_OK;
+            }
+            gotLength = true;
+            continue;
+        }
+        ULONG64 parsed = 0;
+        if (!gotAddress && evalAddress(session, args[i], parsed)) {
+            address = parsed;
+            gotAddress = true;
+            continue;
+        }
+        if (gotAddress && !gotLength && parseCountValue(args[i], parsed)) {
+            length = parsed;
+            gotLength = true;
+            continue;
+        }
+        out.line("usage: !wef.print_format [--lang <format>] [-l <length>] <address> [length]");
+        return S_OK;
+    }
+    if (!gotAddress) {
+        out.error("an address is required\n");
+        return S_OK;
+    }
+
+    if (length > configGetNumber("print.max_length", 4096)) {
+        out.error("byte count exceeds print.max_length\n");
+        return S_OK;
+    }
+    std::vector<unsigned char> bytes;
+    if (!readBytes(session, out, address, length, bytes)) {
+        return S_OK;
+    }
+
+    std::string formatted;
+    if (language == "hex") {
+        for (const unsigned char byte : bytes) {
+            formatted += byteToHex(byte);
+        }
+    } else if (language == "python") {
+        formatted = "b\"" + escapedBytes(bytes) + "\"";
+    } else if (language == "bytearray") {
+        formatted = "bytearray(b\"" + escapedBytes(bytes) + "\")";
+    } else if (language == "c" || language == "js" || language == "asm") {
+        formatted = language == "c" ? "{ " : language == "js" ? "new Uint8Array([" : "db ";
+        for (size_t i = 0; i < bytes.size(); ++i) {
+            if (i != 0) {
+                formatted += ", ";
+            }
+            formatted += "0x" + byteToHex(bytes[i]);
+        }
+        formatted += language == "c" ? " }" : language == "js" ? "])" : "";
+    } else {
+        out.error("unsupported language: " + language + "\n");
+        return S_OK;
+    }
+
+    out.heading("Print Format");
+    out.field("Address", formatAddress(address));
+    out.field("Length", std::to_string(length));
+    out.line(formatted);
+    return S_OK;
+}
+
+HRESULT runXorMemory(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (args.size() != 4 || (args[0] != "display" && args[0] != "patch")) {
+        out.line("usage: !wef.xor_memory display|patch <address> <length> <key|hex:bytes>");
+        return S_OK;
+    }
+
+    ULONG64 address = 0;
+    ULONG64 length = 0;
+    if (!evalAddress(session, args[1], address)) {
+        out.error("could not evaluate address: " + args[1] + "\n");
+        return S_OK;
+    }
+    if (!parseCountValue(args[2], length) || length == 0) {
+        out.error("invalid byte count: " + args[2] + "\n");
+        return S_OK;
+    }
+    if (length > configGetNumber("xor.max_length", 65536)) {
+        out.error("byte count exceeds xor.max_length\n");
+        return S_OK;
+    }
+
+    std::vector<unsigned char> key;
+    if (args[3].starts_with("hex:")) {
+        if (!parseHexBytes(std::string_view(args[3]).substr(4), key)) {
+            out.error("invalid hexadecimal XOR key\n");
+            return S_OK;
+        }
+    } else {
+        key.assign(args[3].begin(), args[3].end());
+    }
+    if (key.empty()) {
+        out.error("XOR key cannot be empty\n");
+        return S_OK;
+    }
+
+    std::vector<unsigned char> bytes;
+    if (!readBytes(session, out, address, length, bytes)) {
+        return S_OK;
+    }
+    for (size_t i = 0; i < bytes.size(); ++i) {
+        bytes[i] ^= key[i % key.size()];
+    }
+
+    if (args[0] == "patch") {
+        const TargetInfo target = session.targetInfo();
+        if (!target.userMode || !target.live) {
+            out.error("xor-memory patch requires a live user-mode target\n");
+            return S_OK;
+        }
+        if (!writeVerified(session, out, address, bytes)) {
+            return S_OK;
+        }
+    }
+
+    out.heading(args[0] == "patch" ? "XOR Memory Patch" : "XOR Memory Display");
+    out.field("Address", formatAddress(address));
+    out.field("Length", std::to_string(length));
+    out.field("Result", bytesToHex(bytes));
+    if (args[0] == "patch") {
+        out.dmlLine(
+            "  [hexdump]",
+            "  " + dmlCommandLink("hexdump", "!wef.hexdump " + formatAddress(address) + " L" + formatHex(length)));
     }
     return S_OK;
 }

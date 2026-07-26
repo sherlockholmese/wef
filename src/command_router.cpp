@@ -35,6 +35,8 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
     out.line("  !wef.dereference [<addr>] [L<count>]");
     out.line("  !wef.hexdump <addr> [L<size>] [-force]");
     out.line("  !wef.search_pattern <text|addr|hex:bytes> [start] [L<size>]");
+    out.line("  !wef.print_format [--lang <format>] [-l <length>] <address>");
+    out.line("  !wef.xor_memory display|patch <address> <length> <key>");
     out.line("  !wef.vmmap [-x|-w|-image|-private|-contains <addr>] [L<count>]");
     out.line("  !wef.xinfo <address> [address ...]");
     out.line("  !wef.xfiles [module [section]]");
@@ -239,6 +241,14 @@ HRESULT Hexdump(IDebugClient* client, PCSTR args) {
 
 HRESULT SearchPattern(IDebugClient* client, PCSTR args) {
     return executeCommand(client, args, runSearchPattern);
+}
+
+HRESULT PrintFormat(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runPrintFormat);
+}
+
+HRESULT XorMemory(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runXorMemory);
 }
 
 HRESULT Vmmap(IDebugClient* client, PCSTR args) {

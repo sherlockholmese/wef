@@ -25,9 +25,11 @@ std::map<std::string, std::string>& store() {
         {"heap.vis.width", "80"},
         {"output.use_dml", "true"},
         {"pattern.max_length", "8192"},
+        {"print.max_length", "4096"},
         {"search.max_hits", "80"},
         {"telescope.count", "20"},
         {"ttd.max_events", "200"},
+        {"xor.max_length", "65536"},
         {"hexdump.size", "100"},
     };
     return values;

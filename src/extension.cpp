@@ -64,6 +64,14 @@ WEF_EXPORT HRESULT CALLBACK search_pattern(IDebugClient* client, PCSTR args) {
     return wef::commands::SearchPattern(client, args);
 }
 
+WEF_EXPORT HRESULT CALLBACK print_format(IDebugClient* client, PCSTR args) {
+    return wef::commands::PrintFormat(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK xor_memory(IDebugClient* client, PCSTR args) {
+    return wef::commands::XorMemory(client, args);
+}
+
 WEF_EXPORT HRESULT CALLBACK vmmap(IDebugClient* client, PCSTR args) {
     return wef::commands::Vmmap(client, args);
 }

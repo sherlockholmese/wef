@@ -12,6 +12,8 @@ telescope @rsp L8
 hexdump @rsp L80
 !wef.search_pattern hex:4141 @rsp L100 -max 1
 !wef.search_pattern "str:AA BB" @rsp L100 -max 1
+!wef.print_format --lang python -l 8 @rsp
+!wef.xor_memory display @rsp 8 hex:aa
 !wef.pattern create 32
 !wef.pattern search Aa3 L256
 !wef.pattern offset Aa3 L256
@@ -31,6 +33,8 @@ r rip = wef_fixture!wef_branch_target
 r rip = @$t2
 r efl = @$t3
 !wef.aliases
+!wef.xor_memory patch wef_fixture!wef_patch_target 8 hex:aa
+!wef.xor_memory patch wef_fixture!wef_patch_target 8 hex:aa
 !wef.patch qword wef_fixture!wef_patch_target 0xaabbccddeeff0011
 dq wef_fixture!wef_patch_target L1
 !wef.nop wef_fixture!wef_nop_target L4
