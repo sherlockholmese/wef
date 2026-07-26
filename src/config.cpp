@@ -11,6 +11,7 @@ std::map<std::string, std::string>& store() {
     static std::map<std::string, std::string> values = {
         {"ctx.stack.count", "20"},
         {"ctx.code.lines", "8"},
+        {"ctx.auto", "false"},
         {"ctx.regs.show_flags", "true"},
         {"dereference.depth", "3"},
         {"heap.max_count", "80"},

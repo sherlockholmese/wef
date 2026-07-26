@@ -8,6 +8,7 @@ EXPORTS
     uninstall
     aliases
     ctx
+    context
     registers
     telescope
     dereference

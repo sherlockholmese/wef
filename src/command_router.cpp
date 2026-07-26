@@ -28,6 +28,7 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
     out.line("  !wef.uninstall");
     out.line("  !wef.aliases");
     out.line("  !wef.ctx [-full] [-regs] [-stack L<count>] [-code L<count>]");
+    out.line("  !wef.ctx auto <on|off|status>       (also: !wef.context)");
     out.line("  !wef.registers");
     out.line("  !wef.telescope [<addr>] [L<count>]");
     out.line("  !wef.dereference [<addr>] [L<count>]");

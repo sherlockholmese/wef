@@ -4,6 +4,8 @@ g
 !wef.install
 ctx
 !wef.ctx -regs
+!wef.context -regs
+!wef.ctx auto status
 !wef.registers
 telescope @rsp L8
 !wef.dereference @rsp L8

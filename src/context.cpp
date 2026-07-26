@@ -20,6 +20,7 @@ std::string padRight(std::string text, size_t width) {
 
 void usage(const Output& out) {
     out.line("usage: !wef.ctx [-full] [-regs] [-stack L<count>] [-code L<count>]");
+    out.line("       !wef.ctx auto <on|off|status>");
 }
 
 void registersUsage(const Output& out) {
@@ -179,6 +180,31 @@ void printStack(DbgSession& session, const Output& out, std::string_view spName,
 }
 
 HRESULT runCtx(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (!args.empty() && args[0] == "auto") {
+        if (args.size() != 2 || (args[1] != "on" && args[1] != "off" && args[1] != "status")) {
+            usage(out);
+            return S_OK;
+        }
+        if (args[1] == "status") {
+            out.field("Automatic context", configGetBool("ctx.auto", false) ? "on" : "off");
+            return S_OK;
+        }
+
+        const bool enable = args[1] == "on";
+        const char* command = enable ? ".pcmd -s \"!wef.ctx\"" : ".pcmd -c";
+        const HRESULT hr = session.control()->Execute(DEBUG_OUTCTL_ALL_CLIENTS, command, DEBUG_EXECUTE_DEFAULT);
+        if (FAILED(hr)) {
+            out.error("failed to update automatic context: " + formatHResult(hr) + "\n");
+            return S_OK;
+        }
+        configSet("ctx.auto", enable ? "true" : "false");
+        out.field("Automatic context", enable ? "on" : "off");
+        if (enable) {
+            out.warning("WinDbg supports one prompt command; enabling automatic context replaces any existing .pcmd command.\n");
+        }
+        return S_OK;
+    }
+
     ULONG64 stackCount = configGetNumber("ctx.stack.count", 20);
     ULONG64 codeLines = configGetNumber("ctx.code.lines", 8);
     bool full = false;
