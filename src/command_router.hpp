@@ -33,6 +33,7 @@ HRESULT Hexdump(IDebugClient* client, PCSTR args);
 HRESULT SearchPattern(IDebugClient* client, PCSTR args);
 HRESULT PrintFormat(IDebugClient* client, PCSTR args);
 HRESULT XorMemory(IDebugClient* client, PCSTR args);
+HRESULT Memory(IDebugClient* client, PCSTR args);
 HRESULT Vmmap(IDebugClient* client, PCSTR args);
 HRESULT Xinfo(IDebugClient* client, PCSTR args);
 HRESULT Xfiles(IDebugClient* client, PCSTR args);

@@ -7,6 +7,11 @@ ctx
 !wef.context -regs
 !wef.ctx auto status
 !wef.registers
+!wef.memory watch @rsp L20
+!wef.memory list
+!wef.ctx -code L1 -stack L2
+!wef.memory unwatch 1
+!wef.memory reset
 telescope @rsp L8
 !wef.dereference @rsp L8
 hexdump @rsp L80

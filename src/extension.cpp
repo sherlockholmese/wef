@@ -72,6 +72,10 @@ WEF_EXPORT HRESULT CALLBACK xor_memory(IDebugClient* client, PCSTR args) {
     return wef::commands::XorMemory(client, args);
 }
 
+WEF_EXPORT HRESULT CALLBACK memory(IDebugClient* client, PCSTR args) {
+    return wef::commands::Memory(client, args);
+}
+
 WEF_EXPORT HRESULT CALLBACK vmmap(IDebugClient* client, PCSTR args) {
     return wef::commands::Vmmap(client, args);
 }

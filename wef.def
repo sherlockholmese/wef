@@ -16,6 +16,7 @@ EXPORTS
     search_pattern
     print_format
     xor_memory
+    memory
     vmmap
     xinfo
     xfiles

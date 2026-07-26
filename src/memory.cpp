@@ -6,6 +6,7 @@
 #include <cctype>
 #include <iomanip>
 #include <limits>
+#include <mutex>
 #include <sstream>
 #include <string_view>
 #include <vector>
@@ -166,6 +167,21 @@ bool hasExecuteProtect(ULONG protect) {
 
 bool hasGuardOrNoAccess(ULONG protect) {
     return (protect & PAGE_GUARD) != 0 || (protect & 0xff) == PAGE_NOACCESS;
+}
+
+std::vector<MemoryWatch>& watchStore() {
+    static std::vector<MemoryWatch> watches;
+    return watches;
+}
+
+std::mutex& watchMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+ULONG& nextWatchId() {
+    static ULONG id = 1;
+    return id;
 }
 
 bool parseCountValue(std::string_view text, ULONG64& value) {
@@ -795,6 +811,107 @@ HRESULT runXorMemory(DbgSession& session, const Output& out, const std::vector<s
             "  [hexdump]",
             "  " + dmlCommandLink("hexdump", "!wef.hexdump " + formatAddress(address) + " L" + formatHex(length)));
     }
+    return S_OK;
+}
+
+std::vector<MemoryWatch> memoryWatches() {
+    std::lock_guard<std::mutex> lock(watchMutex());
+    return watchStore();
+}
+
+HRESULT runMemory(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (args.empty()) {
+        out.line("usage: !wef.memory watch <address> [L<size>]|unwatch <id>|list|reset");
+        return S_OK;
+    }
+
+    if (args[0] == "list") {
+        if (args.size() != 1) {
+            out.line("usage: !wef.memory watch <address> [L<size>]|unwatch <id>|list|reset");
+            return S_OK;
+        }
+        out.heading("Memory Watches");
+        const auto watches = memoryWatches();
+        if (watches.empty()) {
+            out.line("  none");
+            return S_OK;
+        }
+        for (const auto& watch : watches) {
+            out.line(
+                "  id=" + std::to_string(watch.id) +
+                "  address=" + formatAddress(watch.address) +
+                "  size=0x" + formatHex(watch.size));
+        }
+        return S_OK;
+    }
+
+    if (args[0] == "reset") {
+        if (args.size() != 1) {
+            out.line("usage: !wef.memory watch <address> [L<size>]|unwatch <id>|list|reset");
+            return S_OK;
+        }
+        std::lock_guard<std::mutex> lock(watchMutex());
+        watchStore().clear();
+        out.line("memory watches cleared");
+        return S_OK;
+    }
+
+    if (args[0] == "unwatch") {
+        ULONG64 id = 0;
+        if (args.size() != 2 || !parseCountValue(args[1], id) || id > std::numeric_limits<ULONG>::max()) {
+            out.line("usage: !wef.memory unwatch <id>");
+            return S_OK;
+        }
+        const ULONG watchId = static_cast<ULONG>(id);
+        std::lock_guard<std::mutex> lock(watchMutex());
+        const auto found = std::find_if(
+            watchStore().begin(),
+            watchStore().end(),
+            [watchId](const MemoryWatch& watch) { return watch.id == watchId; });
+        if (found == watchStore().end()) {
+            out.error("unknown memory watch id\n");
+            return S_OK;
+        }
+        watchStore().erase(found);
+        out.line("memory watch removed");
+        return S_OK;
+    }
+
+    if (args[0] == "watch") {
+        if (args.size() < 2 || args.size() > 3) {
+            out.line("usage: !wef.memory watch <address> [L<size>]");
+            return S_OK;
+        }
+        ULONG64 address = 0;
+        if (!evalAddress(session, args[1], address)) {
+            out.error("could not evaluate address: " + args[1] + "\n");
+            return S_OK;
+        }
+        ULONG64 size = 0x40;
+        if (args.size() == 3 && !parseLengthToken(args[2], size) && !parseCountValue(args[2], size)) {
+            out.error("invalid watch size: " + args[2] + "\n");
+            return S_OK;
+        }
+        if (size == 0 || size > configGetNumber("memory.watch.max_size", 4096)) {
+            out.error("watch size exceeds memory.watch.max_size\n");
+            return S_OK;
+        }
+
+        std::lock_guard<std::mutex> lock(watchMutex());
+        if (static_cast<ULONG64>(watchStore().size()) >= configGetNumber("memory.watch.max_count", 16)) {
+            out.error("memory watch count exceeds memory.watch.max_count\n");
+            return S_OK;
+        }
+        const MemoryWatch watch = {nextWatchId()++, address, size};
+        watchStore().push_back(watch);
+        out.heading("Memory Watch");
+        out.field("ID", std::to_string(watch.id));
+        out.field("Address", formatAddress(watch.address));
+        out.field("Size", "0x" + formatHex(watch.size));
+        return S_OK;
+    }
+
+    out.line("usage: !wef.memory watch <address> [L<size>]|unwatch <id>|list|reset");
     return S_OK;
 }
 

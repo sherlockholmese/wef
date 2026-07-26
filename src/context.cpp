@@ -288,6 +288,15 @@ HRESULT runCtx(DbgSession& session, const Output& out, const std::vector<std::st
     printCode(session, out, ip, codeLines);
     out.blank();
     printStack(session, out, spName, sp, stackCount);
+    const auto watches = memoryWatches();
+    for (const auto& watch : watches) {
+        out.blank();
+        out.heading("Memory Watch #" + std::to_string(watch.id));
+        runHexdump(
+            session,
+            out,
+            {formatAddress(watch.address), "L" + formatHex(watch.size)});
+    }
     return S_OK;
 }
 

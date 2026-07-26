@@ -24,6 +24,8 @@ std::map<std::string, std::string>& store() {
         {"heap.vis.max_segments", "16"},
         {"heap.vis.width", "80"},
         {"iat.max_entries", "4096"},
+        {"memory.watch.max_count", "16"},
+        {"memory.watch.max_size", "4096"},
         {"output.use_dml", "true"},
         {"pattern.max_length", "8192"},
         {"print.max_length", "4096"},

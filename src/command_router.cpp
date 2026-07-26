@@ -37,6 +37,7 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
     out.line("  !wef.search_pattern <text|addr|hex:bytes> [start] [L<size>]");
     out.line("  !wef.print_format [--lang <format>] [-l <length>] <address>");
     out.line("  !wef.xor_memory display|patch <address> <length> <key>");
+    out.line("  !wef.memory watch|unwatch|list|reset ...");
     out.line("  !wef.vmmap [-x|-w|-image|-private|-contains <addr>] [L<count>]");
     out.line("  !wef.xinfo <address> [address ...]");
     out.line("  !wef.xfiles [module [section]]");
@@ -252,6 +253,10 @@ HRESULT PrintFormat(IDebugClient* client, PCSTR args) {
 
 HRESULT XorMemory(IDebugClient* client, PCSTR args) {
     return executeCommand(client, args, runXorMemory);
+}
+
+HRESULT Memory(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runMemory);
 }
 
 HRESULT Vmmap(IDebugClient* client, PCSTR args) {
