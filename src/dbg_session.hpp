@@ -113,8 +113,10 @@ public:
     std::string currentThreadText() const;
 
     HRESULT readVirtual(ULONG64 address, void* buffer, ULONG size, ULONG* bytesRead) const;
+    HRESULT writeVirtual(ULONG64 address, const void* buffer, ULONG size, ULONG* bytesWritten) const;
     bool readPointer(ULONG64 address, ULONG64& value) const;
     bool readRegister(std::string_view name, ULONG64& value) const;
+    bool writeRegister(std::string_view name, ULONG64 value) const;
     std::vector<RegisterValue> readCommonRegisters() const;
     bool evaluate(std::string_view expression, ULONG64& value) const;
     bool queryVirtual(ULONG64 address, MEMORY_BASIC_INFORMATION64& info) const;

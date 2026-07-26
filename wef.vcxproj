@@ -98,6 +98,7 @@
     <ClCompile Include="src\heap.cpp" />
     <ClCompile Include="src\memory.cpp" />
     <ClCompile Include="src\modules.cpp" />
+    <ClCompile Include="src\mutation.cpp" />
     <ClCompile Include="src\output.cpp" />
     <ClCompile Include="src\pattern.cpp" />
     <ClCompile Include="src\pe_security.cpp" />
@@ -112,6 +113,7 @@
     <ClInclude Include="src\heap.hpp" />
     <ClInclude Include="src\memory.hpp" />
     <ClInclude Include="src\modules.hpp" />
+    <ClInclude Include="src\mutation.hpp" />
     <ClInclude Include="src\output.hpp" />
     <ClInclude Include="src\pattern.hpp" />
     <ClInclude Include="src\pe_security.hpp" />

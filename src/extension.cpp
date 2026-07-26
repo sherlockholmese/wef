@@ -72,6 +72,18 @@ WEF_EXPORT HRESULT CALLBACK pattern(IDebugClient* client, PCSTR args) {
     return wef::commands::Pattern(client, args);
 }
 
+WEF_EXPORT HRESULT CALLBACK patch(IDebugClient* client, PCSTR args) {
+    return wef::commands::Patch(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK nop(IDebugClient* client, PCSTR args) {
+    return wef::commands::Nop(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK skipi(IDebugClient* client, PCSTR args) {
+    return wef::commands::Skipi(client, args);
+}
+
 WEF_EXPORT HRESULT CALLBACK heaps(IDebugClient* client, PCSTR args) {
     return wef::commands::Heaps(client, args);
 }

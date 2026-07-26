@@ -15,6 +15,13 @@ hexdump @rsp L80
 !wef.pattern offset Aa3 L256
 !wef.vmmap -contains @rsp L4
 !wef.aliases
+!wef.patch qword wef_fixture!wef_patch_target 0xaabbccddeeff0011
+dq wef_fixture!wef_patch_target L1
+!wef.nop wef_fixture!wef_nop_target L4
+db wef_fixture!wef_nop_target L8
+r @$t0 = @rip
+!wef.skipi --n 1
+r rip = @$t0
 !wef.heaps help
 !wef.ttd help
 !wef.uninstall

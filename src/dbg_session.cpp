@@ -134,6 +134,15 @@ HRESULT DbgSession::readVirtual(ULONG64 address, void* buffer, ULONG size, ULONG
     return hr;
 }
 
+HRESULT DbgSession::writeVirtual(ULONG64 address, const void* buffer, ULONG size, ULONG* bytesWritten) const {
+    ULONG actual = 0;
+    const HRESULT hr = dataSpaces_->WriteVirtual(address, const_cast<void*>(buffer), size, &actual);
+    if (bytesWritten != nullptr) {
+        *bytesWritten = actual;
+    }
+    return hr;
+}
+
 bool DbgSession::readPointer(ULONG64 address, ULONG64& value) const {
     value = 0;
     ULONG bytesRead = 0;
@@ -170,6 +179,38 @@ bool DbgSession::readRegister(std::string_view name, ULONG64& value) const {
     default:
         return false;
     }
+}
+
+bool DbgSession::writeRegister(std::string_view name, ULONG64 value) const {
+    const std::string copy(name);
+    ULONG index = 0;
+    if (FAILED(registers_->GetIndexByName(copy.c_str(), &index))) {
+        return false;
+    }
+
+    DEBUG_VALUE dbgValue = {};
+    if (FAILED(registers_->GetValue(index, &dbgValue))) {
+        return false;
+    }
+
+    switch (dbgValue.Type) {
+    case DEBUG_VALUE_INT8:
+        dbgValue.I8 = static_cast<UCHAR>(value);
+        break;
+    case DEBUG_VALUE_INT16:
+        dbgValue.I16 = static_cast<USHORT>(value);
+        break;
+    case DEBUG_VALUE_INT32:
+        dbgValue.I32 = static_cast<ULONG>(value);
+        break;
+    case DEBUG_VALUE_INT64:
+        dbgValue.I64 = value;
+        break;
+    default:
+        return false;
+    }
+
+    return SUCCEEDED(registers_->SetValue(index, &dbgValue));
 }
 
 std::vector<RegisterValue> DbgSession::readCommonRegisters() const {

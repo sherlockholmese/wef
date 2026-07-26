@@ -16,6 +16,9 @@ EXPORTS
     vmmap
     checksec
     pattern
+    patch
+    nop
+    skipi
     heaps
     chunk
     vis

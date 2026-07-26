@@ -6,6 +6,7 @@
 #include "heap.hpp"
 #include "memory.hpp"
 #include "modules.hpp"
+#include "mutation.hpp"
 #include "pattern.hpp"
 #include "pe_security.hpp"
 #include "ttd.hpp"
@@ -34,6 +35,9 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
     out.line("  !wef.search_pattern <text|addr|hex:bytes> [start] [L<size>]");
     out.line("  !wef.vmmap [-x|-w|-image|-private|-contains <addr>] [L<count>]");
     out.line("  !wef.pattern create|search|offset ...");
+    out.line("  !wef.patch byte|word|dword|qword|string|hex ...");
+    out.line("  !wef.nop [addr] [L<byte-count>|--n <count>|--b <count>]");
+    out.line("  !wef.skipi [addr] [-n <instruction-count>]");
     out.line("  !wef.checksec [module]");
     out.line("  !wef.heaps [L<count>|heap-address]    (alias: wef-heap)");
     out.line("  !wef.heaps flags|segments|chunks|chunk|find|validate ...");
@@ -236,6 +240,18 @@ HRESULT Checksec(IDebugClient* client, PCSTR args) {
 
 HRESULT Pattern(IDebugClient* client, PCSTR args) {
     return executeCommand(client, args, runPattern);
+}
+
+HRESULT Patch(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runPatch);
+}
+
+HRESULT Nop(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runNop);
+}
+
+HRESULT Skipi(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runSkipi);
 }
 
 HRESULT Heaps(IDebugClient* client, PCSTR args) {
