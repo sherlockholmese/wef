@@ -35,6 +35,9 @@ r @$t1 = @efl
 !wef.edit_flags +CF
 r efl = @$t1
 !wef.entry_break
+!wef.name_break smoke-break wef_fixture!wef_nop_target
+!wef.name_break list
+!wef.name_break delete smoke-break
 !wef.stepover help
 !wef.heaps help
 !wef.ttd help

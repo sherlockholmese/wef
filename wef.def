@@ -28,6 +28,7 @@ EXPORTS
     edit_flags
     stepover
     entry_break
+    name_break
     heaps
     chunk
     vis

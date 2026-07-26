@@ -90,6 +90,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\aliases.cpp" />
+    <ClCompile Include="src\breakpoints.cpp" />
     <ClCompile Include="src\command_router.cpp" />
     <ClCompile Include="src\config.cpp" />
     <ClCompile Include="src\context.cpp" />
@@ -106,6 +107,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\aliases.hpp" />
+    <ClInclude Include="src\breakpoints.hpp" />
     <ClInclude Include="src\command_router.hpp" />
     <ClInclude Include="src\config.hpp" />
     <ClInclude Include="src\context.hpp" />

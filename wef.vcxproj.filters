@@ -16,6 +16,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\aliases.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\breakpoints.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\command_router.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\config.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\context.cpp"><Filter>Source Files</Filter></ClCompile>
@@ -32,6 +33,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\aliases.hpp"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\breakpoints.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\command_router.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\config.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\context.hpp"><Filter>Header Files</Filter></ClInclude>

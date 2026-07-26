@@ -1,6 +1,7 @@
 #include "command_router.hpp"
 
 #include "aliases.hpp"
+#include "breakpoints.hpp"
 #include "config.hpp"
 #include "context.hpp"
 #include "heap.hpp"
@@ -47,6 +48,7 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
     out.line("  !wef.edit_flags <[+|-|~]FLAG> [...]");
     out.line("  !wef.stepover");
     out.line("  !wef.entry_break");
+    out.line("  !wef.name_break <name> [address]|list|delete ...");
     out.line("  !wef.checksec [module]");
     out.line("  !wef.heaps [L<count>|heap-address]    (alias: wef-heap)");
     out.line("  !wef.heaps flags|segments|chunks|chunk|find|validate ...");
@@ -293,6 +295,10 @@ HRESULT Stepover(IDebugClient* client, PCSTR args) {
 
 HRESULT EntryBreak(IDebugClient* client, PCSTR args) {
     return executeCommand(client, args, runEntryBreak);
+}
+
+HRESULT NameBreak(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runNameBreak);
 }
 
 HRESULT Heaps(IDebugClient* client, PCSTR args) {

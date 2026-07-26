@@ -120,6 +120,10 @@ WEF_EXPORT HRESULT CALLBACK entry_break(IDebugClient* client, PCSTR args) {
     return wef::commands::EntryBreak(client, args);
 }
 
+WEF_EXPORT HRESULT CALLBACK name_break(IDebugClient* client, PCSTR args) {
+    return wef::commands::NameBreak(client, args);
+}
+
 WEF_EXPORT HRESULT CALLBACK heaps(IDebugClient* client, PCSTR args) {
     return wef::commands::Heaps(client, args);
 }

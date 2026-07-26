@@ -45,6 +45,7 @@ HRESULT Skipi(IDebugClient* client, PCSTR args);
 HRESULT EditFlags(IDebugClient* client, PCSTR args);
 HRESULT Stepover(IDebugClient* client, PCSTR args);
 HRESULT EntryBreak(IDebugClient* client, PCSTR args);
+HRESULT NameBreak(IDebugClient* client, PCSTR args);
 HRESULT Heaps(IDebugClient* client, PCSTR args);
 HRESULT Vis(IDebugClient* client, PCSTR args);
 HRESULT Ttd(IDebugClient* client, PCSTR args);
