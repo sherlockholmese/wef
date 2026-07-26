@@ -1,6 +1,7 @@
 #include "context.hpp"
 
 #include "config.hpp"
+#include "instruction.hpp"
 #include "memory.hpp"
 
 #include <array>
@@ -123,6 +124,29 @@ void printCode(DbgSession& session, const Output& out, ULONG64 ip, ULONG64 codeL
         out.dmlLine(
             "  symbol: " + symbol,
             std::string("  <col fg=\"green\">symbol:</col> <col fg=\"cyan\">") + dmlEscape(symbol) + "</col>");
+    }
+
+    DecodedInstruction decoded;
+    if (decodeInstruction(session, ip, decoded) && decoded.hasTarget) {
+        if (decoded.conditionalBranch) {
+            bool taken = false;
+            if (evaluateBranch(session, decoded, taken)) {
+                const ULONG64 destination = taken ? decoded.target : ip + decoded.length;
+                const std::string state = taken ? "taken" : "not taken";
+                out.dmlLine(
+                    "  branch: " + state + " -> " + formatAddress(destination),
+                    "  <col fg=\"green\">branch:</col> <col fg=\"" +
+                        std::string(taken ? "green" : "yellow") + "\">" + state + "</col> -&gt; " +
+                        dmlCommandLink(formatAddress(destination), "!wef.xinfo " + formatAddress(destination)));
+            } else {
+                out.field("Branch target", formatAddress(decoded.target));
+            }
+        } else if (decoded.call || decoded.unconditionalBranch) {
+            out.dmlLine(
+                "  target: " + formatAddress(decoded.target),
+                "  <col fg=\"green\">target:</col> " +
+                    dmlCommandLink(formatAddress(decoded.target), "!wef.xinfo " + formatAddress(decoded.target)));
+        }
     }
 
     ULONG64 current = ip;

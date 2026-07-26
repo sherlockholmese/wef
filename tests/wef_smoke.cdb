@@ -23,6 +23,13 @@ hexdump @rsp L80
 !wef.arch list
 !wef.eval @rsp @rip
 !wef.process_status
+r @$t2 = @rip
+r @$t3 = @efl
+r efl = @efl | 0x40
+r rip = wef_fixture!wef_branch_target
+!wef.ctx -code L2
+r rip = @$t2
+r efl = @$t3
 !wef.aliases
 !wef.patch qword wef_fixture!wef_patch_target 0xaabbccddeeff0011
 dq wef_fixture!wef_patch_target L1
