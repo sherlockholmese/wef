@@ -1,5 +1,7 @@
 .load wef.dll
+.prefer_dml 1
 g
+!wef.config set output.use_dml true
 !wef
 !wef.install
 ctx

@@ -22,7 +22,7 @@ public:
 
 private:
     void write(ULONG mask, std::string_view text) const;
-    void writeDml(ULONG mask, std::string_view text) const;
+    bool writeDml(ULONG mask, std::string_view text) const;
 
     IDebugControl* control_;
 };

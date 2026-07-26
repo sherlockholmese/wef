@@ -22,8 +22,8 @@ void Output::normal(std::string_view text) const {
 }
 
 void Output::warning(std::string_view text) const {
-    if (outputUseDml()) {
-        writeDml(DEBUG_OUTPUT_WARNING, color("warning: ", "yellow") + dmlEscape(text));
+    if (outputUseDml() &&
+        writeDml(DEBUG_OUTPUT_WARNING, color("warning: ", "yellow") + dmlEscape(text))) {
         return;
     }
     write(DEBUG_OUTPUT_WARNING, "warning: ");
@@ -31,8 +31,8 @@ void Output::warning(std::string_view text) const {
 }
 
 void Output::error(std::string_view text) const {
-    if (outputUseDml()) {
-        writeDml(DEBUG_OUTPUT_ERROR, color("error: ", "red") + dmlEscape(text));
+    if (outputUseDml() &&
+        writeDml(DEBUG_OUTPUT_ERROR, color("error: ", "red") + dmlEscape(text))) {
         return;
     }
     write(DEBUG_OUTPUT_ERROR, "error: ");
@@ -49,9 +49,8 @@ void Output::blank() const {
 }
 
 void Output::dmlLine(std::string_view plain, std::string_view dml) const {
-    if (outputUseDml()) {
-        writeDml(DEBUG_OUTPUT_NORMAL, dml);
-        writeDml(DEBUG_OUTPUT_NORMAL, "\n");
+    if (outputUseDml() &&
+        writeDml(DEBUG_OUTPUT_NORMAL, std::string(dml) + "\n")) {
         return;
     }
     line(plain);
@@ -77,13 +76,17 @@ void Output::write(ULONG mask, std::string_view text) const {
     control_->Output(mask, "%s", copy.c_str());
 }
 
-void Output::writeDml(ULONG mask, std::string_view text) const {
+bool Output::writeDml(ULONG mask, std::string_view text) const {
     if (control_ == nullptr || text.empty()) {
-        return;
+        return false;
     }
 
     const std::string copy(text);
-    control_->ControlledOutput(DEBUG_OUTCTL_AMBIENT_DML, mask, "%s", copy.c_str());
+    return SUCCEEDED(control_->ControlledOutput(
+        DEBUG_OUTCTL_THIS_CLIENT | DEBUG_OUTCTL_DML,
+        mask,
+        "%s",
+        copy.c_str()));
 }
 
 bool outputUseDml() {
