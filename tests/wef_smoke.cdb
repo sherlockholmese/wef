@@ -29,6 +29,11 @@ db wef_fixture!wef_nop_target L8
 r @$t0 = @rip
 !wef.skipi --n 1
 r rip = @$t0
+r @$t1 = @efl
+!wef.edit_flags +CF
+r efl = @$t1
+!wef.entry_break
+!wef.stepover help
 !wef.heaps help
 !wef.ttd help
 !wef.uninstall

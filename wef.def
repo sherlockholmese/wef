@@ -24,6 +24,9 @@ EXPORTS
     patch
     nop
     skipi
+    edit_flags
+    stepover
+    entry_break
     heaps
     chunk
     vis

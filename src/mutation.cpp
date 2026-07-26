@@ -1,5 +1,6 @@
 #include "mutation.hpp"
 
+#include <array>
 #include <cctype>
 #include <cstdlib>
 #include <limits>
@@ -139,6 +140,43 @@ bool currentInstructionPointer(DbgSession& session, ULONG64& value, std::string_
     }
     name = "eip";
     return session.readRegister(name, value);
+}
+
+bool flagMask(std::string_view name, ULONG64& mask) {
+    struct Flag {
+        const char* name;
+        ULONG64 mask;
+    };
+    static constexpr std::array<Flag, 16> flags = {{
+        {"CF", 1ULL << 0},
+        {"PF", 1ULL << 2},
+        {"AF", 1ULL << 4},
+        {"ZF", 1ULL << 6},
+        {"SF", 1ULL << 7},
+        {"TF", 1ULL << 8},
+        {"IF", 1ULL << 9},
+        {"DF", 1ULL << 10},
+        {"OF", 1ULL << 11},
+        {"NT", 1ULL << 14},
+        {"RF", 1ULL << 16},
+        {"VM", 1ULL << 17},
+        {"AC", 1ULL << 18},
+        {"VIF", 1ULL << 19},
+        {"VIP", 1ULL << 20},
+        {"ID", 1ULL << 21},
+    }};
+
+    std::string upper(name);
+    for (char& ch : upper) {
+        ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    }
+    for (const auto& flag : flags) {
+        if (upper == flag.name) {
+            mask = flag.mask;
+            return true;
+        }
+    }
+    return false;
 }
 
 }
@@ -326,6 +364,99 @@ HRESULT runSkipi(DbgSession& session, const Output& out, const std::vector<std::
     out.field("From", formatAddress(original));
     out.field("To", formatAddress(current));
     out.field("Skipped", std::to_string(count) + " instruction(s)");
+    return S_OK;
+}
+
+HRESULT runEditFlags(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (args.empty()) {
+        out.line("usage: !wef.edit_flags <[+|-|~]CF> [[+|-|~]ZF ...]");
+        return S_OK;
+    }
+    if (!requireLiveUserTarget(session, out, "edit-flags")) {
+        return S_OK;
+    }
+
+    ULONG64 value = 0;
+    if (!session.readRegister("efl", value)) {
+        out.error("flags register is unavailable\n");
+        return S_OK;
+    }
+    const ULONG64 original = value;
+
+    for (const auto& arg : args) {
+        char operation = '~';
+        std::string_view name = arg;
+        if (!arg.empty() && (arg[0] == '+' || arg[0] == '-' || arg[0] == '~')) {
+            operation = arg[0];
+            name = std::string_view(arg).substr(1);
+        }
+
+        ULONG64 mask = 0;
+        if (!flagMask(name, mask)) {
+            out.error("unknown flag: " + std::string(name) + "\n");
+            return S_OK;
+        }
+        if (operation == '+') {
+            value |= mask;
+        } else if (operation == '-') {
+            value &= ~mask;
+        } else {
+            value ^= mask;
+        }
+    }
+
+    if (!session.writeRegister("efl", value)) {
+        out.error("failed to update flags register\n");
+        return S_OK;
+    }
+    ULONG64 verification = 0;
+    if (!session.readRegister("efl", verification) || verification != value) {
+        out.error("flags update verification failed\n");
+        return S_OK;
+    }
+    out.heading("Edit Flags");
+    out.field("Before", "0x" + formatHex(original));
+    out.field("After", "0x" + formatHex(value));
+    return S_OK;
+}
+
+HRESULT runStepover(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (!args.empty()) {
+        out.line("usage: !wef.stepover");
+        return S_OK;
+    }
+    if (!requireLiveUserTarget(session, out, "stepover")) {
+        return S_OK;
+    }
+    const HRESULT hr = session.control()->Execute(DEBUG_OUTCTL_ALL_CLIENTS, "p", DEBUG_EXECUTE_DEFAULT);
+    if (FAILED(hr)) {
+        out.error("step over failed: " + formatHResult(hr) + "\n");
+    }
+    return S_OK;
+}
+
+HRESULT runEntryBreak(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (!args.empty()) {
+        out.line("usage: !wef.entry_break");
+        return S_OK;
+    }
+    if (!requireLiveUserTarget(session, out, "entry-break")) {
+        return S_OK;
+    }
+
+    ULONG64 entry = 0;
+    if (!session.evaluate("@$exentry", entry)) {
+        out.error("could not resolve the executable entry point\n");
+        return S_OK;
+    }
+    const std::string command = "bp /1 " + formatAddress(entry);
+    const HRESULT hr = session.control()->Execute(DEBUG_OUTCTL_ALL_CLIENTS, command.c_str(), DEBUG_EXECUTE_DEFAULT);
+    if (FAILED(hr)) {
+        out.error("failed to set entry breakpoint: " + formatHResult(hr) + "\n");
+        return S_OK;
+    }
+    out.heading("Entry Breakpoint");
+    out.field("Address", formatAddress(entry));
     return S_OK;
 }
 

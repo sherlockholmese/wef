@@ -43,6 +43,9 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
     out.line("  !wef.patch byte|word|dword|qword|string|hex ...");
     out.line("  !wef.nop [addr] [L<byte-count>|--n <count>|--b <count>]");
     out.line("  !wef.skipi [addr] [-n <instruction-count>]");
+    out.line("  !wef.edit_flags <[+|-|~]FLAG> [...]");
+    out.line("  !wef.stepover");
+    out.line("  !wef.entry_break");
     out.line("  !wef.checksec [module]");
     out.line("  !wef.heaps [L<count>|heap-address]    (alias: wef-heap)");
     out.line("  !wef.heaps flags|segments|chunks|chunk|find|validate ...");
@@ -277,6 +280,18 @@ HRESULT Nop(IDebugClient* client, PCSTR args) {
 
 HRESULT Skipi(IDebugClient* client, PCSTR args) {
     return executeCommand(client, args, runSkipi);
+}
+
+HRESULT EditFlags(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runEditFlags);
+}
+
+HRESULT Stepover(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runStepover);
+}
+
+HRESULT EntryBreak(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runEntryBreak);
 }
 
 HRESULT Heaps(IDebugClient* client, PCSTR args) {
