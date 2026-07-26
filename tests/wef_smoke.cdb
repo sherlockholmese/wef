@@ -14,6 +14,13 @@ hexdump @rsp L80
 !wef.pattern search Aa3 L256
 !wef.pattern offset Aa3 L256
 !wef.vmmap -contains @rsp L4
+!wef.xinfo @rsp
+!wef.xfiles
+!wef.xfiles wef_fixture .data
+!wef.arch get
+!wef.arch list
+!wef.eval @rsp @rip
+!wef.process_status
 !wef.aliases
 !wef.patch qword wef_fixture!wef_patch_target 0xaabbccddeeff0011
 dq wef_fixture!wef_patch_target L1

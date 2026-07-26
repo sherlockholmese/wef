@@ -14,6 +14,11 @@ EXPORTS
     hexdump
     search_pattern
     vmmap
+    xinfo
+    xfiles
+    arch
+    eval
+    process_status
     checksec
     pattern
     patch

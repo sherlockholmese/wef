@@ -34,6 +34,11 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
     out.line("  !wef.hexdump <addr> [L<size>] [-force]");
     out.line("  !wef.search_pattern <text|addr|hex:bytes> [start] [L<size>]");
     out.line("  !wef.vmmap [-x|-w|-image|-private|-contains <addr>] [L<count>]");
+    out.line("  !wef.xinfo <address> [address ...]");
+    out.line("  !wef.xfiles [module [section]]");
+    out.line("  !wef.arch get|list|set <x86|x64|arm64>");
+    out.line("  !wef.eval <expression> [expression]");
+    out.line("  !wef.process_status");
     out.line("  !wef.pattern create|search|offset ...");
     out.line("  !wef.patch byte|word|dword|qword|string|hex ...");
     out.line("  !wef.nop [addr] [L<byte-count>|--n <count>|--b <count>]");
@@ -232,6 +237,26 @@ HRESULT SearchPattern(IDebugClient* client, PCSTR args) {
 
 HRESULT Vmmap(IDebugClient* client, PCSTR args) {
     return executeCommand(client, args, runVmmap);
+}
+
+HRESULT Xinfo(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runXinfo);
+}
+
+HRESULT Xfiles(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runXfiles);
+}
+
+HRESULT Arch(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runArch);
+}
+
+HRESULT Eval(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runEval);
+}
+
+HRESULT ProcessStatus(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runProcessStatus);
 }
 
 HRESULT Checksec(IDebugClient* client, PCSTR args) {

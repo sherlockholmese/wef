@@ -64,6 +64,26 @@ WEF_EXPORT HRESULT CALLBACK vmmap(IDebugClient* client, PCSTR args) {
     return wef::commands::Vmmap(client, args);
 }
 
+WEF_EXPORT HRESULT CALLBACK xinfo(IDebugClient* client, PCSTR args) {
+    return wef::commands::Xinfo(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK xfiles(IDebugClient* client, PCSTR args) {
+    return wef::commands::Xfiles(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK arch(IDebugClient* client, PCSTR args) {
+    return wef::commands::Arch(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK eval(IDebugClient* client, PCSTR args) {
+    return wef::commands::Eval(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK process_status(IDebugClient* client, PCSTR args) {
+    return wef::commands::ProcessStatus(client, args);
+}
+
 WEF_EXPORT HRESULT CALLBACK checksec(IDebugClient* client, PCSTR args) {
     return wef::commands::Checksec(client, args);
 }
