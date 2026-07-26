@@ -40,8 +40,16 @@ WEF_EXPORT HRESULT CALLBACK ctx(IDebugClient* client, PCSTR args) {
     return wef::commands::Ctx(client, args);
 }
 
+WEF_EXPORT HRESULT CALLBACK registers(IDebugClient* client, PCSTR args) {
+    return wef::commands::Registers(client, args);
+}
+
 WEF_EXPORT HRESULT CALLBACK telescope(IDebugClient* client, PCSTR args) {
     return wef::commands::Telescope(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK dereference(IDebugClient* client, PCSTR args) {
+    return wef::commands::Dereference(client, args);
 }
 
 WEF_EXPORT HRESULT CALLBACK hexdump(IDebugClient* client, PCSTR args) {

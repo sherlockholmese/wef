@@ -3,6 +3,7 @@
 #include "config.hpp"
 #include "memory.hpp"
 
+#include <array>
 #include <sstream>
 
 namespace wef {
@@ -21,12 +22,58 @@ void usage(const Output& out) {
     out.line("usage: !wef.ctx [-full] [-regs] [-stack L<count>] [-code L<count>]");
 }
 
+void registersUsage(const Output& out) {
+    out.line("usage: !wef.registers");
+}
+
 bool nextLength(const std::vector<std::string>& args, size_t& index, ULONG64& value) {
     if (index + 1 >= args.size()) {
         return false;
     }
     ++index;
     return parseLengthToken(args[index], value);
+}
+
+std::string decodeFlags(ULONG64 value) {
+    struct Flag {
+        ULONG64 mask;
+        const char* name;
+    };
+    static constexpr std::array<Flag, 16> flags = {{
+        {1ULL << 0, "CF"},
+        {1ULL << 2, "PF"},
+        {1ULL << 4, "AF"},
+        {1ULL << 6, "ZF"},
+        {1ULL << 7, "SF"},
+        {1ULL << 8, "TF"},
+        {1ULL << 9, "IF"},
+        {1ULL << 10, "DF"},
+        {1ULL << 11, "OF"},
+        {1ULL << 14, "NT"},
+        {1ULL << 16, "RF"},
+        {1ULL << 17, "VM"},
+        {1ULL << 18, "AC"},
+        {1ULL << 19, "VIF"},
+        {1ULL << 20, "VIP"},
+        {1ULL << 21, "ID"},
+    }};
+
+    std::string result;
+    for (const auto& flag : flags) {
+        if ((value & flag.mask) == 0) {
+            continue;
+        }
+        if (!result.empty()) {
+            result += ' ';
+        }
+        result += flag.name;
+    }
+
+    if (!result.empty()) {
+        result += ' ';
+    }
+    result += "IOPL=" + std::to_string((value >> 12) & 3);
+    return result;
 }
 
 void printRegisters(DbgSession& session, const Output& out) {
@@ -51,6 +98,15 @@ void printRegisters(DbgSession& session, const Output& out) {
     }
     if (columns != 0) {
         out.line(line);
+    }
+
+    if (configGetBool("ctx.regs.show_flags", true)) {
+        for (const auto& reg : regs) {
+            if (reg.name == "efl" || reg.name == "rflags" || reg.name == "eflags") {
+                out.field("Flags", decodeFlags(reg.value));
+                break;
+            }
+        }
     }
 }
 
@@ -125,10 +181,17 @@ void printStack(DbgSession& session, const Output& out, std::string_view spName,
 HRESULT runCtx(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
     ULONG64 stackCount = configGetNumber("ctx.stack.count", 20);
     ULONG64 codeLines = configGetNumber("ctx.code.lines", 8);
+    bool full = false;
+    bool regsOnly = false;
 
     for (size_t i = 0; i < args.size(); ++i) {
         const auto& arg = args[i];
-        if (arg == "-full" || arg == "-regs") {
+        if (arg == "-full") {
+            full = true;
+            continue;
+        }
+        if (arg == "-regs") {
+            regsOnly = true;
             continue;
         }
         if (arg == "-stack") {
@@ -168,10 +231,22 @@ HRESULT runCtx(DbgSession& session, const Output& out, const std::vector<std::st
     }
 
     printRegisters(session, out);
+    if (regsOnly && !full) {
+        return S_OK;
+    }
     out.blank();
     printCode(session, out, ip, codeLines);
     out.blank();
     printStack(session, out, spName, sp, stackCount);
+    return S_OK;
+}
+
+HRESULT runRegisters(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (!args.empty()) {
+        registersUsage(out);
+        return S_OK;
+    }
+    printRegisters(session, out);
     return S_OK;
 }
 

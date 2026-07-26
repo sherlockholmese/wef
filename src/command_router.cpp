@@ -13,7 +13,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
-#include <sstream>
 
 namespace wef {
 
@@ -28,11 +27,13 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
     out.line("  !wef.uninstall");
     out.line("  !wef.aliases");
     out.line("  !wef.ctx [-full] [-regs] [-stack L<count>] [-code L<count>]");
+    out.line("  !wef.registers");
     out.line("  !wef.telescope [<addr>] [L<count>]");
+    out.line("  !wef.dereference [<addr>] [L<count>]");
     out.line("  !wef.hexdump <addr> [L<size>] [-force]");
     out.line("  !wef.search_pattern <text|addr|hex:bytes> [start] [L<size>]");
     out.line("  !wef.vmmap [-x|-w|-image|-private|-contains <addr>] [L<count>]");
-    out.line("  !wef.pattern create|offset ...");
+    out.line("  !wef.pattern create|search|offset ...");
     out.line("  !wef.checksec [module]");
     out.line("  !wef.heaps [L<count>|heap-address]    (alias: wef-heap)");
     out.line("  !wef.heaps flags|segments|chunks|chunk|find|validate ...");
@@ -52,7 +53,7 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
             dmlCommandLink("vis", "!wef.vis") + " " +
             dmlCommandLink("ttd gui", "!wef.ttd gui") + " " +
             dmlCommandLink("config", "!wef.config get"));
-    out.line("Run !wef.install to add opt-in bare aliases: ctx, telescope, hexdump, search-pattern, vmmap, pattern, checksec, chunk, vis, ttd-events, wef-config.");
+    out.line("Run !wef.install to add opt-in bare aliases, including ctx, registers, dereference, telescope, vmmap, pattern, checksec, and heap helpers.");
     return S_OK;
 }
 
@@ -96,10 +97,44 @@ std::vector<std::string> splitArgs(PCSTR args) {
         return result;
     }
 
-    std::istringstream stream(args);
-    std::string item;
-    while (stream >> item) {
-        result.push_back(item);
+    std::string current;
+    char quote = '\0';
+    bool tokenStarted = false;
+    for (size_t i = 0; args[i] != '\0'; ++i) {
+        const char ch = args[i];
+        if (quote != '\0') {
+            if (ch == quote) {
+                quote = '\0';
+                continue;
+            }
+            if (ch == '\\' && args[i + 1] != '\0' && (args[i + 1] == quote || args[i + 1] == '\\')) {
+                current.push_back(args[++i]);
+                continue;
+            }
+            current.push_back(ch);
+            continue;
+        }
+
+        if (ch == '"' || ch == '\'') {
+            quote = ch;
+            tokenStarted = true;
+            continue;
+        }
+        if (std::isspace(static_cast<unsigned char>(ch)) != 0) {
+            if (tokenStarted) {
+                result.push_back(current);
+                current.clear();
+                tokenStarted = false;
+            }
+            continue;
+        }
+
+        current.push_back(ch);
+        tokenStarted = true;
+    }
+
+    if (tokenStarted) {
+        result.push_back(current);
     }
     return result;
 }
@@ -171,7 +206,15 @@ HRESULT Ctx(IDebugClient* client, PCSTR args) {
     return executeCommand(client, args, runCtx);
 }
 
+HRESULT Registers(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runRegisters);
+}
+
 HRESULT Telescope(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runTelescope);
+}
+
+HRESULT Dereference(IDebugClient* client, PCSTR args) {
     return executeCommand(client, args, runTelescope);
 }
 

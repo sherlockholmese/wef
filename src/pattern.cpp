@@ -58,7 +58,7 @@ std::vector<unsigned char> needleBytes(DbgSession& session, const std::string& t
 void usage(const Output& out) {
     out.line("usage:");
     out.line("  !wef.pattern create <length>");
-    out.line("  !wef.pattern offset <value|ascii> [L<max-length>]");
+    out.line("  !wef.pattern search|offset <value|ascii> [L<max-length>]");
 }
 
 bool parseCount(std::string_view text, ULONG64& value) {
@@ -129,7 +129,7 @@ HRESULT runPattern(DbgSession& session, const Output& out, const std::vector<std
     if (args[0] == "create") {
         return createPattern(out, args);
     }
-    if (args[0] == "offset") {
+    if (args[0] == "search" || args[0] == "offset") {
         return offsetPattern(session, out, args);
     }
 

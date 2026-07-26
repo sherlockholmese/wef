@@ -3,10 +3,15 @@ g
 !wef
 !wef.install
 ctx
+!wef.ctx -regs
+!wef.registers
 telescope @rsp L8
+!wef.dereference @rsp L8
 hexdump @rsp L80
 !wef.search_pattern hex:4141 @rsp L100 -max 1
+!wef.search_pattern "str:AA BB" @rsp L100 -max 1
 !wef.pattern create 32
+!wef.pattern search Aa3 L256
 !wef.pattern offset Aa3 L256
 !wef.vmmap -contains @rsp L4
 !wef.aliases

@@ -70,6 +70,21 @@ ULONG64 configGetNumber(std::string_view key, ULONG64 fallback) {
     }
 }
 
+bool configGetBool(std::string_view key, bool fallback) {
+    const auto value = configGet(key);
+    if (!value) {
+        return fallback;
+    }
+
+    if (*value == "true" || *value == "1" || *value == "yes" || *value == "on") {
+        return true;
+    }
+    if (*value == "false" || *value == "0" || *value == "no" || *value == "off") {
+        return false;
+    }
+    return fallback;
+}
+
 bool configSet(std::string_view key, std::string_view value) {
     std::lock_guard<std::mutex> lock(storeMutex());
     const auto found = store().find(std::string(key));

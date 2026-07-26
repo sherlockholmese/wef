@@ -8,7 +8,9 @@ EXPORTS
     uninstall
     aliases
     ctx
+    registers
     telescope
+    dereference
     hexdump
     search_pattern
     vmmap

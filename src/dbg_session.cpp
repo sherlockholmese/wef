@@ -1,8 +1,8 @@
 #include "dbg_session.hpp"
 
-#include <array>
 #include <cstdio>
 #include <iomanip>
+#include <initializer_list>
 #include <sstream>
 
 namespace wef {
@@ -173,19 +173,26 @@ bool DbgSession::readRegister(std::string_view name, ULONG64& value) const {
 }
 
 std::vector<RegisterValue> DbgSession::readCommonRegisters() const {
-    const std::array<std::string_view, 18> names = {
-        "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rsp", "rbp",
-        "rip", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
-        "efl"
+    std::vector<RegisterValue> values;
+    const auto append = [&](std::initializer_list<std::string_view> names) {
+        for (const auto name : names) {
+            ULONG64 value = 0;
+            if (readRegister(name, value)) {
+                values.push_back({std::string(name), value, true});
+            }
+        }
     };
 
-    std::vector<RegisterValue> values;
-    values.reserve(names.size());
-    for (const auto name : names) {
-        ULONG64 value = 0;
-        if (readRegister(name, value)) {
-            values.push_back({std::string(name), value, true});
-        }
+    if (pointerSize() == 8) {
+        values.reserve(18);
+        append({
+            "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rsp", "rbp",
+            "rip", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
+            "efl"
+        });
+    } else {
+        values.reserve(10);
+        append({"eax", "ebx", "ecx", "edx", "esi", "edi", "esp", "ebp", "eip", "efl"});
     }
 
     return values;
