@@ -9,6 +9,12 @@ ctx
 !wef.context -regs
 !wef.ctx auto status
 !wef.registers
+!wef.registers rax
+!wef.registers @rsp
+!wef.registers -reset
+!wef.registers -plain
+!wef.colors
+!wef.registers
 !wef.memory watch @rsp L20
 !wef.memory list
 !wef.ctx -code L1 -stack L2
@@ -36,9 +42,15 @@ hexdump @rsp L80
 !wef.pie breakpoint 0 wef_fixture pie_smoke
 !wef.pie delete pie_smoke
 !wef.pe_info wef_fixture
+!wef.checksec
+!wef.checksec ntdll
 !wef.iat wef_fixture kernel
 !wef.got wef_fixture kernel
 !wef.canary wef_fixture
+!wef.canary scan
+!wef.stack L8
+stack @rsp L4
+!wef.stack cookie
 r @$t2 = @rip
 r @$t3 = @efl
 r efl = @efl | 0x40
@@ -65,6 +77,9 @@ r efl = @$t1
 !wef.name_break delete smoke-break
 !wef.stepover help
 !wef.heaps help
+!wef.heaps stats
+!wef.heaps xref @rsp
+!wef.chunk @rsp
 !wef.ttd help
 !wef.uninstall
 !wef.ctx

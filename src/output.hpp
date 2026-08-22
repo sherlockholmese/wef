@@ -4,8 +4,14 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace wef {
+
+class DbgSession;
+class Output;
+
+HRESULT runColors(DbgSession& session, const Output& out, const std::vector<std::string>& args);
 
 class Output {
 public:

@@ -107,6 +107,7 @@
     <ClCompile Include="src\output.cpp" />
     <ClCompile Include="src\pattern.cpp" />
     <ClCompile Include="src\pe_security.cpp" />
+    <ClCompile Include="src\stack.cpp" />
     <ClCompile Include="src\ttd.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -125,6 +126,7 @@
     <ClInclude Include="src\output.hpp" />
     <ClInclude Include="src\pattern.hpp" />
     <ClInclude Include="src\pe_security.hpp" />
+    <ClInclude Include="src\stack.hpp" />
     <ClInclude Include="src\ttd.hpp" />
   </ItemGroup>
   <ItemGroup>

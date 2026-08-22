@@ -4,8 +4,13 @@
 #include "instruction.hpp"
 #include "memory.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cctype>
+#include <map>
 #include <sstream>
+#include <string>
+#include <vector>
 
 namespace wef {
 
@@ -25,7 +30,9 @@ void usage(const Output& out) {
 }
 
 void registersUsage(const Output& out) {
-    out.line("usage: !wef.registers");
+    out.line("usage:");
+    out.line("  !wef.registers [-plain] [-reset]");
+    out.line("  !wef.registers <register>              example: rax");
 }
 
 bool nextLength(const std::vector<std::string>& args, size_t& index, ULONG64& value) {
@@ -78,7 +85,90 @@ std::string decodeFlags(ULONG64 value) {
     return result;
 }
 
-void printRegisters(DbgSession& session, const Output& out) {
+std::string dmlColor(std::string_view text, std::string_view color) {
+    return "<col fg=\"" + std::string(color) + "\">" + dmlEscape(text) + "</col>";
+}
+
+std::map<ULONG, std::map<std::string, ULONG64>>& registerBaselineStore() {
+    static std::map<ULONG, std::map<std::string, ULONG64>> store;
+    return store;
+}
+
+ULONG currentEngineThreadId(DbgSession& session) {
+    ULONG threadId = 0;
+    if (FAILED(session.systemObjects()->GetCurrentThreadId(&threadId))) {
+        return 0;
+    }
+    return threadId;
+}
+
+void threadStackLimits(DbgSession& session, ULONG64& stackBase, ULONG64& stackLimit) {
+    stackBase = 0;
+    stackLimit = 0;
+
+    ULONG64 teb = 0;
+    if (!session.evaluate("@$teb", teb) || teb == 0) {
+        return;
+    }
+
+    const ULONG size = session.pointerSize();
+    const ULONG baseOffset = size == 8 ? 0x08 : 0x04;
+    const ULONG limitOffset = size == 8 ? 0x10 : 0x08;
+
+    ULONG read = 0;
+    if (FAILED(session.readVirtual(teb + baseOffset, &stackBase, sizeof(ULONG64), &read)) ||
+        FAILED(session.readVirtual(teb + limitOffset, &stackLimit, sizeof(ULONG64), &read))) {
+        stackBase = 0;
+        stackLimit = 0;
+    }
+}
+
+std::string shortRegisterAnnotation(DbgSession& session, ULONG64 value, ULONG64 stackBase, ULONG64 stackLimit) {
+    if (value == 0) {
+        return {};
+    }
+
+    const std::string symbol = session.resolveSymbol(value);
+    if (!symbol.empty()) {
+        return symbol;
+    }
+
+    if (stackLimit != 0 && stackBase > stackLimit && value >= stackLimit && value < stackBase) {
+        return "(stack)";
+    }
+    return {};
+}
+
+struct RegisterCell {
+    std::string plain;
+    std::string dml;
+};
+
+RegisterCell renderRegisterCell(
+    DbgSession& session,
+    const RegisterValue& reg,
+    bool changed,
+    bool annotate,
+    ULONG64 stackBase,
+    ULONG64 stackLimit) {
+    RegisterCell cell;
+    const std::string marker = changed ? "*" : " ";
+    const std::string annotation =
+        annotate ? shortRegisterAnnotation(session, reg.value, stackBase, stackLimit) : std::string();
+    const std::string valueText = formatAddress(reg.value);
+
+    cell.plain =
+        marker + padRight(reg.name, 4) + " " + valueText +
+        (annotation.empty() ? "" : " " + annotation);
+
+    cell.dml =
+        dmlColor(marker + reg.name, changed ? "red" : "green") + " " +
+        dmlCommandLink(valueText, "!wef.xinfo " + valueText) +
+        (annotation.empty() ? "" : " " + dmlColor(annotation, annotation[0] == '(' ? "cyan" : "yellow"));
+    return cell;
+}
+
+void printRegisters(DbgSession& session, const Output& out, bool annotate, bool showDiff) {
     out.heading("Registers");
     const auto regs = session.readCommonRegisters();
     if (regs.empty()) {
@@ -86,20 +176,48 @@ void printRegisters(DbgSession& session, const Output& out) {
         return;
     }
 
-    std::string line = "  ";
-    size_t columns = 0;
-    for (const auto& reg : regs) {
-        const std::string item = padRight(reg.name, 4) + " " + formatAddress(reg.value);
-        line += padRight(item, 27);
-        ++columns;
-        if (columns == 3) {
-            out.line(line);
-            line = "  ";
-            columns = 0;
-        }
+    ULONG64 stackBase = 0;
+    ULONG64 stackLimit = 0;
+    if (annotate) {
+        threadStackLimits(session, stackBase, stackLimit);
     }
-    if (columns != 0) {
-        out.line(line);
+
+    const auto& baseline = registerBaselineStore()[currentEngineThreadId(session)];
+    std::vector<RegisterCell> cells;
+    cells.reserve(regs.size());
+    std::string changedNames;
+    for (const auto& reg : regs) {
+        bool changed = false;
+        if (showDiff) {
+            const auto found = baseline.find(reg.name);
+            changed = found != baseline.end() && found->second != reg.value;
+            if (changed) {
+                if (!changedNames.empty()) {
+                    changedNames += " ";
+                }
+                changedNames += reg.name;
+            }
+        }
+        cells.push_back(renderRegisterCell(session, reg, changed, annotate, stackBase, stackLimit));
+    }
+
+    constexpr size_t kColumnWidth = 44;
+    for (size_t i = 0; i < cells.size(); i += 2) {
+        std::string plain = "  " + cells[i].plain;
+        std::string dml = "  " + cells[i].dml;
+        if (cells[i].plain.size() < kColumnWidth) {
+            const size_t pad = kColumnWidth - cells[i].plain.size();
+            plain.append(pad, ' ');
+            dml.append(pad, ' ');
+        } else {
+            plain += ' ';
+            dml += ' ';
+        }
+        if (i + 1 < cells.size()) {
+            plain += cells[i + 1].plain;
+            dml += cells[i + 1].dml;
+        }
+        out.dmlLine(plain, dml);
     }
 
     if (configGetBool("ctx.regs.show_flags", true)) {
@@ -110,6 +228,101 @@ void printRegisters(DbgSession& session, const Output& out) {
             }
         }
     }
+
+    if (showDiff && !changedNames.empty()) {
+        out.dmlLine(
+            "  changed: " + changedNames,
+            "  " + dmlColor("changed", "gray") + ": " + dmlColor(changedNames, "red"));
+    }
+
+    for (const auto& reg : regs) {
+        baseline[reg.name] = reg.value;
+    }
+}
+
+void printRegisterDetail(DbgSession& session, const Output& out, const std::string& requestedName) {
+    std::string name = requestedName;
+    if (!name.empty() && name.front() == '@') {
+        name.erase(name.begin());
+    }
+    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+
+    ULONG64 value = 0;
+    if (!session.readRegister(name, value)) {
+        out.error("unknown or unavailable register: " + requestedName + "\n");
+        return;
+    }
+
+    out.heading("Register " + name);
+    const std::string valueText = formatAddress(value);
+
+    ULONG64 ip = 0;
+    bool isIp = session.readRegister("rip", ip);
+    if (!isIp) {
+        isIp = session.readRegister("eip", ip);
+    }
+    if (isIp && value == ip && value != 0) {
+        out.dmlLine(
+            "  value   " + valueText + "   (instruction pointer)",
+            "  " + dmlColor("value", "gray") + "   " +
+                dmlCommandLink(valueText, "!wef.xinfo " + valueText) +
+                dmlColor("   (instruction pointer)", "green"));
+    } else {
+        out.dmlLine(
+            "  value   " + valueText,
+            "  " + dmlColor("value", "gray") + "   " +
+                dmlCommandLink(valueText, "!wef.xinfo " + valueText));
+    }
+
+    if (value == 0) {
+        out.field("Note", "null");
+        return;
+    }
+
+    const std::string symbol = session.resolveSymbol(value);
+    if (!symbol.empty()) {
+        out.field("Symbol", symbol);
+    }
+
+    MEMORY_BASIC_INFORMATION64 region = {};
+    if (session.queryVirtual(value, region)) {
+        std::string text = stateToString(region.State);
+        const std::string protection = protectionToString(region.Protect);
+        if (!protection.empty()) {
+            text += " " + protection;
+        }
+        const std::string type = typeToString(region.Type);
+        if (!type.empty()) {
+            text += " " + type;
+        }
+        const std::string module = session.moduleNameForOffset(value);
+        if (!module.empty()) {
+            text += " (" + module + ")";
+        }
+        out.field("Region", text);
+    }
+
+    const std::string preview = previewString(session, value);
+    if (!preview.empty()) {
+        out.field("String", preview);
+    }
+
+    out.field(
+        "Chain",
+        describePointerChain(session, value, configGetNumber("dereference.depth", 3)));
+
+    std::string actions =
+        dmlCommandLink("[telescope]", "!wef.telescope " + valueText + " L8") + " " +
+        dmlCommandLink("[hexdump]", "!wef.hexdump " + valueText + " L64") + " " +
+        dmlCommandLink("[xinfo]", "!wef.xinfo " + valueText);
+    std::string plainActions = "  [telescope] [hexdump] [xinfo]";
+    if (name == "rsp" || name == "esp") {
+        actions += " " + dmlCommandLink("[stack]", "!wef.stack L20");
+        plainActions += " [stack]";
+    }
+    out.dmlLine(plainActions, "  " + actions);
 }
 
 void printCode(DbgSession& session, const Output& out, ULONG64 ip, ULONG64 codeLines) {
@@ -280,7 +493,11 @@ HRESULT runCtx(DbgSession& session, const Output& out, const std::vector<std::st
         }
     }
 
-    printRegisters(session, out);
+    printRegisters(
+        session,
+        out,
+        configGetBool("regs.annotate", true),
+        configGetBool("regs.show_diff", true));
     if (regsOnly && !full) {
         return S_OK;
     }
@@ -301,11 +518,43 @@ HRESULT runCtx(DbgSession& session, const Output& out, const std::vector<std::st
 }
 
 HRESULT runRegisters(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
-    if (!args.empty()) {
-        registersUsage(out);
+    bool plain = false;
+    bool reset = false;
+    std::string single;
+
+    for (const auto& arg : args) {
+        if (arg == "-plain" || arg == "-raw") {
+            plain = true;
+            continue;
+        }
+        if (arg == "-reset") {
+            reset = true;
+            continue;
+        }
+        if (arg == "help" || arg == "-h" || arg == "/?") {
+            registersUsage(out);
+            out.line("       !wef.registers <register>      example: rax");
+            return S_OK;
+        }
+        if (!single.empty()) {
+            registersUsage(out);
+            return S_OK;
+        }
+        single = arg;
+    }
+
+    if (reset) {
+        registerBaselineStore().erase(currentEngineThreadId(session));
+    }
+
+    if (!single.empty()) {
+        printRegisterDetail(session, out, single);
         return S_OK;
     }
-    printRegisters(session, out);
+
+    const bool annotate = !plain && configGetBool("regs.annotate", true);
+    const bool showDiff = !plain && configGetBool("regs.show_diff", true);
+    printRegisters(session, out, annotate, showDiff);
     return S_OK;
 }
 

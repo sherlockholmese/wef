@@ -55,6 +55,8 @@ HRESULT EntryBreak(IDebugClient* client, PCSTR args);
 HRESULT NameBreak(IDebugClient* client, PCSTR args);
 HRESULT Heaps(IDebugClient* client, PCSTR args);
 HRESULT Vis(IDebugClient* client, PCSTR args);
+HRESULT Stack(IDebugClient* client, PCSTR args);
+HRESULT Colors(IDebugClient* client, PCSTR args);
 HRESULT Ttd(IDebugClient* client, PCSTR args);
 HRESULT Config(IDebugClient* client, PCSTR args);
 

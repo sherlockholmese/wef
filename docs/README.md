@@ -57,9 +57,16 @@ search-pattern hex:41414141
 
 - `!wef.heaps` lists process heaps.
 - `!wef.vis` renders a compact heap visualization.
-- `!wef.chunk <addr>` inspects the heap chunk containing an address.
+- `!wef.chunk <addr>` inspects the heap chunk containing an address and flags dangling references.
 - `!wef.heaps find` searches heap chunks.
+- `!wef.heaps stats` aggregates busy/free bytes, size histograms, largest allocations, and free-run fragmentation hints.
+- `!wef.heaps xref <addr>` finds heap pointers to an allocation, marking stale references in freed chunks.
 - `!wef.heaps validate` performs lightweight structural checks.
+
+### Stack Analysis
+
+- `!wef.stack` prints annotated stack slots with return addresses, frame bases, stack pointers, and cookies from the engine stack walk.
+- `!wef.stack cookie` (or `!wef.canary scan`) locates `/GS` security-cookie instances on the current thread's stack.
 
 ### TTD Event Explorer
 

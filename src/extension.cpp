@@ -169,6 +169,14 @@ WEF_EXPORT HRESULT CALLBACK vis(IDebugClient* client, PCSTR args) {
     return wef::commands::Vis(client, args);
 }
 
+WEF_EXPORT HRESULT CALLBACK stack(IDebugClient* client, PCSTR args) {
+    return wef::commands::Stack(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK colors(IDebugClient* client, PCSTR args) {
+    return wef::commands::Colors(client, args);
+}
+
 WEF_EXPORT HRESULT CALLBACK ttd(IDebugClient* client, PCSTR args) {
     return wef::commands::Ttd(client, args);
 }

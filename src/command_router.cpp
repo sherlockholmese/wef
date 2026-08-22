@@ -10,6 +10,7 @@
 #include "mutation.hpp"
 #include "pattern.hpp"
 #include "pe_security.hpp"
+#include "stack.hpp"
 #include "ttd.hpp"
 
 #include <algorithm>
@@ -59,9 +60,14 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
     out.line("  !wef.checksec [module]");
     out.line("  !wef.heaps [L<count>|heap-address]    (alias: wef-heap)");
     out.line("  !wef.heaps flags|segments|chunks|chunk|find|validate ...");
+    out.line("  !wef.heaps stats [heap] | xref <addr>  (statistics, cross references)");
     out.line("  !wef.chunk <addr>");
     out.line("  !wef.vis [L<count>|heap-address]");
     out.line("  !vis [L<count>|heap-address]");
+    out.line("  !wef.stack [<addr>] [L<count>]        (annotated stack, also: !wef.stack cookie)");
+    out.line("  !wef.canary scan [L<max-scan-bytes>]  (find cookies on the stack)");
+    out.line("  !wef.registers [-plain|-reset|<reg>]  (annotated registers, change tracking)");
+    out.line("  !wef.colors                           (DML color self-test)");
     out.line("  !wef.ttd calls|exceptions|memory|allocs|timeline|gui ...");
     out.line("  !wef.config get [key]");
     out.line("  !wef.config set <key> <value>");
@@ -342,6 +348,14 @@ HRESULT Heaps(IDebugClient* client, PCSTR args) {
 
 HRESULT Vis(IDebugClient* client, PCSTR args) {
     return executeCommand(client, args, runHeapVis);
+}
+
+HRESULT Stack(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runStack);
+}
+
+HRESULT Colors(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runColors);
 }
 
 HRESULT Ttd(IDebugClient* client, PCSTR args) {

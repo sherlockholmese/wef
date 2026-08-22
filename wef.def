@@ -40,5 +40,7 @@ EXPORTS
     heaps
     chunk
     vis
+    stack
+    colors
     ttd
     config

@@ -1,6 +1,7 @@
 #include "pe_security.hpp"
 
 #include "config.hpp"
+#include "stack.hpp"
 
 #include <windows.h>
 
@@ -49,8 +50,22 @@ std::string subsystemName(USHORT subsystem) {
     }
 }
 
-std::string yesNo(bool value) {
-    return value ? "yes" : "no";
+void mitigationField(
+    const Output& out,
+    std::string_view label,
+    bool enabled,
+    const std::string& note = {},
+    bool notApplicable = false) {
+    const std::string valueText =
+        std::string(notApplicable ? "n/a" : (enabled ? "yes" : "no")) +
+        (note.empty() ? "" : " (" + note + ")");
+    const char* fg = notApplicable ? "gray" : (enabled ? "green" : "red");
+
+    const std::string plain = "  " + std::string(label) + ": " + valueText;
+    const std::string dml =
+        "  <col fg=\"gray\">" + dmlEscape(std::string(label)) + "</col>: " +
+        "<col fg=\"" + fg + "\">" + dmlEscape(valueText) + "</col>";
+    out.dmlLine(plain, dml);
 }
 
 bool containsInsensitive(std::string text, std::string needle) {
@@ -133,17 +148,6 @@ HRESULT reportImage(DbgSession& session, const Output& out, ULONG index, ULONG64
     const bool guardCf = (dll & IMAGE_DLLCHARACTERISTICS_GUARD_CF) != 0;
     const bool highEntropy = (dll & IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA) != 0;
 
-    out.heading("WEF Checksec");
-    out.field("Module", moduleName(session, index, base));
-    out.field("ImageBase", formatAddress(base));
-    out.field("PreferredImageBase", formatAddress(optional.ImageBase));
-    out.field("Machine", machineName(fileHeader.Machine));
-    out.field("Subsystem", subsystemName(optional.Subsystem));
-    out.field("Timestamp", "0x" + formatHex(fileHeader.TimeDateStamp));
-    out.field("DYNAMICBASE / ASLR", yesNo(dynamicBase));
-    out.field("NX compatible", yesNo(nxCompat));
-    out.field("High entropy VA", yesNo(highEntropy));
-
     const auto& loadConfigDir = optional.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG];
     LoadConfig loadConfig = {};
     bool loadConfigRead = false;
@@ -151,28 +155,71 @@ HRESULT reportImage(DbgSession& session, const Output& out, ULONG index, ULONG64
         loadConfigRead = readStruct(session, base + loadConfigDir.VirtualAddress, loadConfig);
     }
 
+    out.heading("WEF Checksec");
+    out.field("Module", moduleName(session, index, base));
+    out.field("Machine", machineName(fileHeader.Machine));
+    out.field("Subsystem", subsystemName(optional.Subsystem));
+    out.blank();
+
+    mitigationField(out, "ASLR (DYNAMIC_BASE)", dynamicBase, highEntropy ? "high entropy VA" : "");
+    mitigationField(out, "DEP / NX (NX_COMPAT)", nxCompat);
     if (guardCf) {
-        if (loadConfigRead) {
-            out.field("Control Flow Guard", "yes (GuardFlags=0x" + formatHex(loadConfig.GuardFlags) + ")");
-        } else {
-            out.field("Control Flow Guard", "yes (metadata unreadable)");
-        }
+        mitigationField(
+            out,
+            "Control Flow Guard",
+            true,
+            loadConfigRead ? "GuardFlags=0x" + formatHex(loadConfig.GuardFlags) : "metadata unreadable");
     } else {
-        out.field("Control Flow Guard", "no");
+        mitigationField(out, "Control Flow Guard", false);
     }
 
+    bool gsCookie = false;
+    std::string gsNote;
+    if (loadConfigRead && loadConfig.SecurityCookie != 0) {
+        gsCookie = true;
+        gsNote = "cookie @ " + formatAddress(loadConfig.SecurityCookie);
+    }
+    mitigationField(out, "GS cookie (/GS)", gsCookie, gsNote);
+
+    bool safeSehEnabled = false;
+    bool safeSehApplicable = false;
+    std::string safeSehNote;
     if constexpr (std::is_same_v<LoadConfig, IMAGE_LOAD_CONFIG_DIRECTORY32>) {
         if ((dll & IMAGE_DLLCHARACTERISTICS_NO_SEH) != 0) {
-            out.field("SafeSEH", "not applicable (/NOSEH)");
+            safeSehNote = "/NOSEH";
         } else if (loadConfigRead && loadConfig.SEHandlerCount != 0) {
-            out.field("SafeSEH", "yes");
+            safeSehEnabled = true;
+            safeSehApplicable = true;
         } else {
-            out.field("SafeSEH", "no or unavailable");
+            safeSehApplicable = true;
+            safeSehNote = "or unavailable";
         }
-    } else {
-        out.field("SafeSEH", "not applicable");
+    }
+    mitigationField(out, "SafeSEH", safeSehEnabled, safeSehNote, !safeSehApplicable);
+
+    ULONG applicable = 4;
+    ULONG enabledCount = (dynamicBase ? 1 : 0) + (nxCompat ? 1 : 0) + (guardCf ? 1 : 0) + (gsCookie ? 1 : 0);
+    if (safeSehApplicable) {
+        ++applicable;
+        if (safeSehEnabled) {
+            ++enabledCount;
+        }
     }
 
+    out.blank();
+    const char* summaryFg = enabledCount == applicable ? "green" : (enabledCount == 0 ? "red" : "yellow");
+    const std::string summaryText =
+        "mitigations: " + formatHex(enabledCount, 1) + "/" + formatHex(applicable, 1) + " enabled";
+    out.dmlLine(
+        "  " + summaryText,
+        "  <col fg=\"" + summaryFg + "\">" + dmlEscape(summaryText) + "</col>");
+
+    out.dmlLine(
+        "  details: [pe_info] [canary] [iat]",
+        "  " + dmlColor("details", "gray") + ": " +
+            dmlCommandLink("[pe_info]", "!wef.pe_info") + " " +
+            dmlCommandLink("[canary]", "!wef.canary scan") + " " +
+            dmlCommandLink("[iat]", "!wef.iat"));
     return S_OK;
 }
 
@@ -494,8 +541,14 @@ HRESULT runIat(DbgSession& session, const Output& out, const std::vector<std::st
 }
 
 HRESULT runCanary(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (!args.empty() && (args[0] == "scan" || args[0] == "stack")) {
+        const std::vector<std::string> rest(args.begin() + 1, args.end());
+        return runCanaryScan(session, out, rest);
+    }
+
     if (args.size() > 1) {
         out.line("usage: !wef.canary [module]");
+        out.line("       !wef.canary scan [L<max-scan-bytes>]");
         return S_OK;
     }
 

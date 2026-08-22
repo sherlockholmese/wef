@@ -76,6 +76,54 @@ Shows hex bytes and printable ASCII.
 
 Reads larger than `0x1000` require `-force`.
 
+## Register Commands
+
+```text
+!wef.registers [-plain] [-reset]
+!wef.registers <register>
+```
+
+### `!wef.registers`
+
+Prints a two-column register grid with inline annotations:
+
+- Resolved symbols for values that land on known code or data
+- `(stack)` for values inside the current thread stack range
+- Clickable values that open `!wef.xinfo`
+
+Registers whose value changed since the previous call are marked `*` and shown in red, mirroring GEF's change highlighting. The baseline is tracked per engine thread and refreshed on every display; `-reset` discards it.
+
+```text
+!wef.registers
+!wef.registers -reset
+!wef.registers -plain
+```
+
+`-plain` prints bare name/value pairs without annotations, diff markers, or links.
+
+### Single-register query
+
+Passing a register name prints a detailed view for one register:
+
+```text
+!wef.registers rax
+!wef.registers @rsp
+```
+
+The detail view includes value, symbol, memory region (state/protection/type/module), string preview, a dereference chain, and `[telescope]` / `[hexdump]` / `[xinfo]` action buttons. Queries for `rip` note the instruction pointer role; queries for `rsp` add a `[stack]` button.
+
+Settings: `regs.annotate`, `regs.show_diff`, plus `ctx.regs.show_flags` for the flags line.
+
+## Color Commands
+
+```text
+!wef.colors
+```
+
+### `!wef.colors`
+
+Self-test for DML color output. Prints each supported color rendered in itself, a sample command link, warning and error samples, and guidance when DML is disabled (`output.use_dml`). Use it to confirm your debugger host renders colored DML; cdb and ntkd show raw tags unless DML is preferred.
+
 ## Memory Commands
 
 ```text
@@ -155,7 +203,15 @@ Finds the offset of an ASCII token or numeric value inside the cyclic pattern.
 !wef.checksec [module]
 ```
 
-Inspects PE security properties for the main module or a specified module.
+Inspects PE security mitigations for the main module or a specified module. Each mitigation prints green when enabled and red when missing:
+
+- ASLR (`DYNAMIC_BASE`, notes high entropy VA)
+- DEP / NX (`NX_COMPAT`)
+- Control Flow Guard (with GuardFlags when metadata is readable)
+- GS cookie (load-config `SecurityCookie` address)
+- SafeSEH (x86 images only; `n/a` elsewhere)
+
+A summary line reports how many applicable mitigations are enabled, followed by `[pe_info]`, `[canary]`, and `[iat]` shortcut buttons.
 
 ```text
 !wef.checksec
@@ -171,6 +227,8 @@ Inspects PE security properties for the main module or a specified module.
 !wef.heaps chunks [-busy|-free] [-contains <addr>] [L<count>|heap-address]
 !wef.heaps chunk <addr>
 !wef.heaps find <addr|text> [L<count>|heap-address]
+!wef.heaps stats [L<count>|heap-address]
+!wef.heaps xref <addr> [L<count>|heap-address]
 !wef.heaps validate [L<count>|heap-address]
 !wef.chunk <addr>
 !wef.vis [L<count>|heap-address]
@@ -178,6 +236,43 @@ Inspects PE security properties for the main module or a specified module.
 ```
 
 See [Heap Workflows](heap.md) for detailed examples.
+
+## Stack Commands
+
+```text
+!wef.stack [<addr|expression>] [L<count>]
+!wef.stack cookie [L<max-scan-bytes>]
+!wef.canary scan [L<max-scan-bytes>]
+```
+
+### `!wef.stack`
+
+Prints pointer-sized slots from `@rsp`, or an explicit address, with an annotation column:
+
+- `ret#N -> symbol` for slots holding a return address found by the engine stack walk
+- `frame #N` for slot addresses that match a walked frame base
+- `stack ptr` for values that point into the current thread stack
+- `cookie <module>` for values equal to a module `/GS` security cookie
+- Dereference chain and string previews
+
+A compact clickable backtrace is printed after the table.
+
+```text
+!wef.stack
+!wef.stack @rbp L32
+!wef.stack 00000000`0019f000 L16
+```
+
+### `!wef.stack cookie`
+
+Reads the `/GS` security cookie from every loaded module's load-config directory, then scans the current thread's stack (from the TEB stack limits) for instances of those values. Each hit shows its address, rsp-relative offset, owning module, and a dump button. This mirrors GEF's canary workflow on Windows.
+
+```text
+!wef.stack cookie
+!wef.canary scan L200000
+```
+
+Scan depth defaults to `stack.cookie.max_scan` bytes above the stack limit.
 
 ## TTD Commands
 

@@ -99,16 +99,23 @@ WEF uses WinDbg DML by default. In WinDbg, bracketed actions such as `[dump]`, `
 !wef.pattern create <length>
 !wef.pattern offset <value|ascii> [L<max-length>]
 !wef.checksec
+!wef.registers [-plain|-reset|<register>]
+!wef.colors
 !wef.heaps [L<count>|heap-address]       (alias: wef-heap)
 !wef.heaps flags [L<count>|heap-address]
 !wef.heaps segments [L<count>|heap-address]
 !wef.heaps chunks [-busy|-free] [-contains <addr>] [L<count>|heap-address]
 !wef.heaps chunk <addr>
 !wef.heaps find <addr|text> [L<count>|heap-address]
+!wef.heaps stats [L<count>|heap-address]
+!wef.heaps xref <addr> [L<count>|heap-address]
 !wef.heaps validate [L<count>|heap-address]
 !wef.chunk <addr>
 !wef.vis [L<count>|heap-address]
 !vis [L<count>|heap-address]
+!wef.stack [<addr>] [L<count>]
+!wef.stack cookie [L<max-scan-bytes>]
+!wef.canary scan [L<max-scan-bytes>]
 !wef.ttd calls <module!function|pattern> [L<count>]
 !wef.ttd exceptions [L<count>]
 !wef.ttd memory <addr> L<size> [-r|-w|-x|-rw|-all] [-take <count>]
@@ -132,6 +139,7 @@ checksec
 chunk
 wef-heap
 vis
+stack
 ttd-events
 wef-config
 ```
@@ -143,10 +151,38 @@ wef-config
 !wef.vis
 !wef.chunk <addr>
 !wef.heaps find <addr|text>
+!wef.heaps stats
+!wef.heaps xref <addr>
 !wef.heaps validate
 ```
 
 `!wef.vis` prints a compact heap map, summary counts, and the largest chunks instead of dumping every chunk. Use the DML buttons or `!wef.heaps chunks <heap>` for the full table.
+
+`!wef.heaps stats` aggregates Windows NT-heap backend chunks per heap: busy/free counts and bytes, utilization, a power-of-two size histogram, largest busy allocations, and adjacent-free-run hints for fragmentation. `!wef.heaps xref <addr>` scans chunk data for pointer-sized references to an allocation; hits in free chunks are marked `(stale)` as use-after-free evidence. `!wef.heaps chunk <addr>` flags addresses that fall inside freed chunks.
+
+### Stack workflow
+
+```text
+!wef.stack
+!wef.stack @rbp L32
+!wef.stack cookie
+```
+
+`!wef.stack` prints the stack from `@rsp` (or an explicit address) with one annotation column: return-address slots found by a stack walk, frame bases, stack pointers, security-cookie values, and dereference chains. `!wef.stack cookie` (also `!wef.canary scan`) reads `/GS` cookies from every loaded module's load config and reports each instance found on the current thread's stack, with rsp-relative offsets.
+
+### Register workflow
+
+```text
+!wef.registers
+!wef.registers rax
+!wef.registers -plain
+```
+
+`!wef.registers` prints a two-column grid with inline annotations: resolved symbols, `(stack)` tags for values inside the thread stack, and xinfo buttons. Registers that changed since the previous stop are marked with `*` and colored red (per-thread baseline; `regs.show_diff`, reset with `-reset`). `-plain` prints bare values for clean copy-paste. A single-register query shows value, symbol, region, string preview, pointer chain, and action buttons.
+
+`checksec` renders each mitigation (`ASLR`, `DEP/NX`, `CFG`, `GS cookie`, `SafeSEH`) colored green when enabled and red when missing, with an enabled-count summary line.
+
+Run `!wef.colors` to verify DML color output works in your debugger host; it prints swatches, a sample link, warning/error samples, and hints when DML is disabled.
 
 ### Memory and exploit helpers
 
@@ -199,8 +235,13 @@ heap.vis.max_chunks = 160
 heap.vis.detail_count = 8
 heap.vis.max_segments = 16
 heap.vis.width = 80
+heap.stats.top_count = 5
 pattern.max_length = 8192
 search.max_hits = 80
+stack.count = 20
+stack.cookie.max_scan = 1048576
+regs.annotate = true
+regs.show_diff = true
 telescope.count = 20
 ttd.max_events = 200
 hexdump.size = 100

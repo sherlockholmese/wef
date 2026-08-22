@@ -1,5 +1,7 @@
 #include "output.hpp"
 
+#include "command_router.hpp"
+
 #include <atomic>
 #include <string>
 
@@ -123,7 +125,67 @@ std::string dmlEscape(std::string_view text) {
 }
 
 std::string dmlCommandLink(std::string_view label, std::string_view command) {
-    return "<link cmd=\"" + dmlEscape(command) + "\">[" + dmlEscape(label) + "]</link>";
+    const bool alreadyBracketed =
+        label.size() >= 2 && label.front() == '[' && label.back() == ']';
+    std::string rendered;
+    if (alreadyBracketed) {
+        rendered = dmlEscape(label);
+    } else {
+        rendered = "[" + dmlEscape(label) + "]";
+    }
+    return "<link cmd=\"" + dmlEscape(command) + "\">" + rendered + "</link>";
 }
 
+}
+
+HRESULT runColors(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (!args.empty()) {
+        out.line("usage: !wef.colors");
+        return S_OK;
+    }
+
+    out.heading("WEF Color Test");
+    if (!outputUseDml()) {
+        out.warning("output.use_dml is disabled; run !wef.config set output.use_dml true\n");
+        return S_OK;
+    }
+
+    struct Swatch {
+        const char* name;
+        const char* fg;
+    };
+    constexpr Swatch swatches[] = {
+        {"gray", "gray"},     {"white", "white"},   {"red", "red"},
+        {"green", "green"},   {"blue", "blue"},     {"yellow", "yellow"},
+        {"cyan", "cyan"},     {"magenta", "magenta"},
+    };
+
+    const auto visibleWidth = [](const char* text) {
+        return std::char_traits<char>::length(text);
+    };
+
+    std::string plain = "  ";
+    std::string dml = "  ";
+    for (const auto& swatch : swatches) {
+        const size_t pad = 9 - visibleWidth(swatch.name);
+        plain += swatch.name;
+        plain.append(pad, ' ');
+        dml += "<col fg=\"" + std::string(swatch.fg) + "\">" + dmlEscape(swatch.name) + "</col>";
+        dml.append(pad, ' ');
+    }
+    out.dmlLine(plain, dml);
+
+    out.dmlLine(
+        "  link sample: [click me]",
+        "  " + color("link sample:", "gray") + " " +
+            dmlCommandLink("[click me]", "!wef.config get output.use_dml"));
+    out.field("field sample", "label green / value white");
+
+    out.warning("this is a warning sample (yellow)\n");
+    out.error("this is an error sample (red)\n");
+
+    out.blank();
+    out.line("If the words above match their own colors and this text is untagged, DML output works.");
+    out.line("Colors require a DML-capable host such as WinDbg. cdb/ntkd render raw tags unless .prefer_dml is set.");
+    return S_OK;
 }

@@ -45,8 +45,13 @@ heap.vis.max_chunks = 160
 heap.vis.detail_count = 8
 heap.vis.max_segments = 16
 heap.vis.width = 80
+heap.stats.top_count = 5
 pattern.max_length = 8192
 search.max_hits = 80
+stack.count = 20
+stack.cookie.max_scan = 1048576
+regs.annotate = true
+regs.show_diff = true
 telescope.count = 20
 ttd.max_events = 200
 hexdump.size = 100
@@ -97,6 +102,16 @@ Default byte count for `!wef.hexdump`.
 
 Default maximum number of hits for `!wef.search_pattern`.
 
+## Register Settings
+
+### `regs.annotate`
+
+Controls inline register annotations (symbols, `(stack)` tags, xinfo links) in `!wef.registers` and `!wef.ctx`. Disable with `-plain` per call.
+
+### `regs.show_diff`
+
+Controls red `*` change markers for registers whose value changed since the previous display. The baseline is tracked per engine thread; `!wef.registers -reset` discards it.
+
 ## Heap Settings
 
 ### `heap.max_count`
@@ -129,7 +144,21 @@ Maximum bytes read from an individual chunk for heap content search.
 
 ### `heap.find.max_hits`
 
-Maximum hits printed by `!wef.heaps find`.
+Maximum hits printed by `!wef.heaps find` and `!wef.heaps xref`.
+
+### `heap.stats.top_count`
+
+Number of largest busy chunks shown per heap in `!wef.heaps stats`.
+
+## Stack Settings
+
+### `stack.count`
+
+Default number of slots shown by `!wef.stack`.
+
+### `stack.cookie.max_scan`
+
+Maximum bytes scanned above the stack limit by `!wef.stack cookie`. Override a single scan with an explicit length, for example `!wef.stack cookie L200000`.
 
 ## Pattern Settings
 

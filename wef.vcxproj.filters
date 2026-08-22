@@ -31,6 +31,7 @@
     <ClCompile Include="src\output.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\pattern.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\pe_security.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\stack.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\ttd.cpp"><Filter>Source Files</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -49,6 +50,7 @@
     <ClInclude Include="src\output.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\pattern.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\pe_security.hpp"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\stack.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\ttd.hpp"><Filter>Header Files</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>

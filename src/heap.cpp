@@ -3,6 +3,7 @@
 #include "config.hpp"
 
 #include <algorithm>
+#include <map>
 #include <optional>
 #include <vector>
 
@@ -533,6 +534,17 @@ void printDetailedChunk(const Output& out, const HeapChunk& chunk, ULONG64 reque
     out.field("previous bytes", "0x" + formatHex(static_cast<ULONG64>(chunk.previousSize) * (chunk.size / chunk.sizeUnits)));
     out.field("next", formatAddress(chunk.address + chunk.size));
     out.field("flags", chunkFlags(chunk.flags) + " (0x" + formatHex(chunk.flags, 2) + ")");
+
+    const bool busy = (chunk.flags & 0x01) != 0;
+    if (!busy && (chunk.flags & 0x08) == 0 && rangeContains(chunk.address, chunk.size, requested)) {
+        out.dmlLine(
+            "  [!] requested address lies inside a FREE chunk; live references here are dangling (use-after-free candidate)",
+            "  " + dmlColor("[!]", "red") + " " +
+                dmlColor(
+                    "requested address lies inside a FREE chunk; live references here are dangling (use-after-free candidate)",
+                    "red"));
+    }
+
     out.dmlLine(
         "  actions: [hexdump user] [telescope user] [heap chunks] [validate heap]",
         "  " + dmlColor("actions", "gray") + ": " +
@@ -721,8 +733,10 @@ void usage(const Output& out) {
     out.line("  !wef.heaps chunks [-busy|-free] [-contains <addr>] [L<count>|heap-address]");
     out.line("  !wef.heaps chunk <addr>");
     out.line("  !wef.heaps find <addr|text> [L<count>|heap-address]");
+    out.line("  !wef.heaps stats [L<count>|heap-address]");
+    out.line("  !wef.heaps xref <addr> [L<count>|heap-address]");
     out.line("  !wef.heaps validate [L<count>|heap-address]");
-    out.line("  alias after !wef.install: wef-heap [L<count>|heap-address]");
+    out.line("  alias after !wef.install: wef-heap");
 }
 
 HRESULT runHeapFlags(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
@@ -912,6 +926,232 @@ HRESULT runHeapValidate(DbgSession& session, const Output& out, const std::vecto
     return S_OK;
 }
 
+ULONG64 histogramBucket(ULONG64 size) {
+    ULONG64 bound = 0x10;
+    while (bound < size && bound < 0x100000ULL) {
+        bound <<= 1;
+    }
+    return bound;
+}
+
+struct FreeRun {
+    ULONG64 start = 0;
+    ULONG64 chunkCount = 0;
+    ULONG64 bytes = 0;
+};
+
+std::vector<FreeRun> collectFreeRuns(const std::vector<HeapChunk>& chunks) {
+    std::vector<FreeRun> runs;
+    FreeRun current;
+    bool inRun = false;
+    for (const auto& chunk : chunks) {
+        const bool freeChunk = (chunk.flags & 0x01) == 0 && (chunk.flags & 0x08) == 0;
+        if (!freeChunk) {
+            if (inRun) {
+                runs.push_back(current);
+                current = {};
+                inRun = false;
+            }
+            continue;
+        }
+
+        const bool adjacent =
+            inRun && current.start + current.bytes == chunk.address;
+        if (!adjacent && inRun) {
+            runs.push_back(current);
+            current = {};
+        }
+        if (current.chunkCount == 0) {
+            current.start = chunk.address;
+        }
+        current.bytes += chunk.size;
+        ++current.chunkCount;
+        inRun = true;
+    }
+    if (inRun) {
+        runs.push_back(current);
+    }
+    return runs;
+}
+
+void printHeapStatsBlock(DbgSession& session, const Output& out, const HeapSummary& heap) {
+    const auto chunks = collectHeapChunks(
+        session,
+        out,
+        heap.address,
+        configGetNumber("heap.vis.max_segments", 16),
+        configGetNumber("heap.chunk.max_search_chunks", 4096),
+        true);
+    const auto stats = summarizeChunks(chunks);
+    const ULONG64 totalBytes = stats.busyBytes + stats.freeBytes;
+
+    std::string titlePlain =
+        "  heap " + formatHex(heap.index, 2) + "  " + formatAddress(heap.address) +
+        "  chunks=" + formatHex(static_cast<ULONG64>(chunks.size()));
+    std::string titleDml =
+        "  " + dmlColor("heap " + formatHex(heap.index, 2), "cyan") + "  " +
+            dmlColor(formatAddress(heap.address), "white") + "  " +
+            dmlColor("chunks=" + formatHex(static_cast<ULONG64>(chunks.size())), "gray") + "  " +
+            dmlCommandLink("[chunks]", "!wef.heaps chunks " + formatAddress(heap.address)) + " " +
+            dmlCommandLink("[vis]", "!wef.vis " + formatAddress(heap.address));
+    out.dmlLine(titlePlain, titleDml);
+
+    if (chunks.empty()) {
+        out.line("    no backend chunks walked; LFH or missing symbols may hide allocations");
+        return;
+    }
+
+    out.dmlLine(
+        "    busy: " + formatHex(stats.busyCount) + " chunks / 0x" + formatHex(stats.busyBytes) +
+            " bytes   free: " + formatHex(stats.freeCount) + " chunks / 0x" + formatHex(stats.freeBytes) +
+            " bytes",
+        "    " + dmlColor("busy:", "gray") + " " + dmlColor(formatHex(stats.busyCount) + " / 0x" + formatHex(stats.busyBytes), "green") +
+            " " + dmlColor("free:", "gray") + " " + dmlColor(formatHex(stats.freeCount) + " / 0x" + formatHex(stats.freeBytes), "yellow"));
+
+    if (totalBytes > 0) {
+        const ULONG64 busyPercent = (stats.busyBytes * 100) / totalBytes;
+        out.line(
+            "    utilization: " + formatHex(busyPercent) + "% busy of 0x" + formatHex(totalBytes) +
+            " bytes walked");
+    }
+
+    std::map<ULONG64, ULONG64> histogram;
+    for (const auto& chunk : chunks) {
+        ++histogram[histogramBucket(chunk.size)];
+    }
+    out.line("    size histogram:");
+    for (const auto& [bound, count] : histogram) {
+        out.line("      <=0x" + padRight(formatHex(bound), 8) + ": " + formatHex(count));
+    }
+
+    std::vector<const HeapChunk*> busy;
+    busy.reserve(chunks.size());
+    for (const auto& chunk : chunks) {
+        if ((chunk.flags & 0x01) != 0) {
+            busy.push_back(&chunk);
+        }
+    }
+    std::sort(busy.begin(), busy.end(), [](const HeapChunk* left, const HeapChunk* right) {
+        return left->size > right->size;
+    });
+    if (!busy.empty()) {
+        std::string plain = "    largest busy:";
+        std::string dml = "    " + dmlColor("largest busy:", "gray");
+        const ULONG64 showCount = std::min<ULONG64>(configGetNumber("heap.stats.top_count", 5), busy.size());
+        for (ULONG64 i = 0; i < showCount; ++i) {
+            const auto* chunk = busy[static_cast<size_t>(i)];
+            const std::string item = " 0x" + formatHex(chunk->size) + "@" + formatAddress(chunk->userAddress);
+            plain += item;
+            dml += dmlCommandLink(item, "!wef.hexdump " + formatAddress(chunk->userAddress) + " L64");
+        }
+        out.dmlLine(plain, dml);
+    }
+
+    const auto runs = collectFreeRuns(chunks);
+    ULONG64 coalescibleBytes = 0;
+    for (const auto& run : runs) {
+        if (run.chunkCount > 1) {
+            coalescibleBytes += run.bytes;
+        }
+    }
+    if (runs.empty()) {
+        out.line("    free runs: none");
+    } else {
+        out.line(
+            "    free runs: " + formatHex(static_cast<ULONG64>(runs.size())) + " covering 0x" +
+            formatHex(coalescibleBytes) + " coalescible bytes (fragmentation hint)");
+        for (const auto& run : runs) {
+            if (run.chunkCount <= 1) {
+                continue;
+            }
+            out.line(
+                "      run @" + formatAddress(run.start) + "  chunks=" + formatHex(run.chunkCount) +
+                "  bytes=0x" + formatHex(run.bytes));
+        }
+    }
+    out.blank();
+}
+
+HRESULT runHeapStats(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    out.heading("Heap Statistics");
+    const auto heaps = selectedHeaps(session, out, args, 1);
+    if (heaps.empty()) {
+        out.warning("no heaps selected\n");
+        return S_OK;
+    }
+    for (const auto& heap : heaps) {
+        printHeapStatsBlock(session, out, heap);
+    }
+    return S_OK;
+}
+
+HRESULT runHeapXref(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (args.size() < 2) {
+        out.line("usage: !wef.heaps xref <addr> [L<count>|heap-address]");
+        return S_OK;
+    }
+
+    ULONG64 target = 0;
+    if (!evalAddress(session, args[1], target)) {
+        out.error("could not evaluate address: " + args[1] + "\n");
+        return S_OK;
+    }
+
+    const auto pattern = numberPattern(target, session.pointerSize());
+    const auto heaps = selectedHeaps(session, out, args, 2);
+
+    out.heading("Heap Cross References");
+    out.line("  target: " + formatAddress(target));
+    out.line("  heap               chunk              user               ref                flags");
+    out.line("  -----------------  -----------------  -----------------  -----------------  ------------------------------");
+
+    ULONG64 shown = 0;
+    const ULONG64 maxHits = configGetNumber("heap.find.max_hits", 80);
+    for (const auto& heap : heaps) {
+        const auto chunks = collectHeapChunks(
+            session,
+            out,
+            heap.address,
+            configGetNumber("heap.vis.max_segments", 16),
+            configGetNumber("heap.chunk.max_search_chunks", 4096),
+            true);
+        for (const auto& chunk : chunks) {
+            if (shown >= maxHits) {
+                out.warning("cross-reference output truncated; raise heap.find.max_hits\n");
+                return S_OK;
+            }
+            std::vector<unsigned char> bytes;
+            if (!readBytes(session, chunk.userAddress, std::min<ULONG64>(chunk.usableSize, configGetNumber("heap.find.max_chunk_read", 0x10000)), bytes)) {
+                continue;
+            }
+            auto found = bytes.begin();
+            while ((found = std::search(found, bytes.end(), pattern.begin(), pattern.end())) != bytes.end()) {
+                const ULONG64 offset = static_cast<ULONG64>(found - bytes.begin());
+                const ULONG64 ref = chunk.userAddress + offset;
+                const bool stale = (chunk.flags & 0x01) == 0 && (chunk.flags & 0x08) == 0;
+                const std::string line =
+                    "  " + formatAddress(heap.address) + "  " + formatAddress(chunk.address) + "  " +
+                    formatAddress(chunk.userAddress) + "  " + formatAddress(ref) + "  " +
+                    chunkFlags(chunk.flags) + (stale ? " (stale)" : "");
+                const std::string dml =
+                    "  " + dmlColor(formatAddress(heap.address), "white") + "  " +
+                        dmlColor(formatAddress(chunk.address), "white") + "  " +
+                        dmlColor(formatAddress(chunk.userAddress), "cyan") + "  " +
+                        dmlColor(formatAddress(ref), stale ? "red" : "green") + "  " +
+                        dmlColor(chunkFlags(chunk.flags) + (stale ? " (stale)" : ""), stale ? "red" : "gray");
+                out.dmlLine(line, dml);
+                ++shown;
+                ++found;
+            }
+        }
+    }
+
+    if (shown == 0) {
+        out.warning("no heap chunk data references " + formatAddress(target) + "\n");
+    }
+    return S_OK;
+}
+
 }
 
 HRESULT runHeap(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
@@ -940,6 +1180,12 @@ HRESULT runHeap(DbgSession& session, const Output& out, const std::vector<std::s
         }
         if (args[0] == "find") {
             return runHeapFind(session, out, args);
+        }
+        if (args[0] == "stats" || args[0] == "statistics") {
+            return runHeapStats(session, out, args);
+        }
+        if (args[0] == "xref") {
+            return runHeapXref(session, out, args);
         }
         if (args[0] == "validate") {
             return runHeapValidate(session, out, args);

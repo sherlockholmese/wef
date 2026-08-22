@@ -9,6 +9,8 @@ WEF heap commands provide GEF-adjacent heap inspection for Windows process heaps
 !wef.vis
 !wef.chunk <addr>
 !wef.heaps find <addr|text>
+!wef.heaps stats
+!wef.heaps xref <addr>
 !wef.heaps validate
 ```
 
@@ -84,6 +86,8 @@ Output includes:
 - Flags
 - User-byte preview
 
+If the requested address falls inside a free chunk, WEF prints a warning that live references to it are dangling (use-after-free candidate).
+
 Useful follow-up buttons:
 
 - `[hexdump user]`
@@ -148,6 +152,36 @@ Segment output includes:
 
 This is useful when a chunk walk stops early or when checking whether an address belongs to a backend segment.
 
+## Heap Statistics
+
+```text
+!wef.heaps stats
+!wef.heaps stats <heap-address>
+```
+
+Per heap, `stats` walks backend chunks and reports:
+
+- Busy and free chunk counts with byte totals
+- Utilization percentage of walked bytes
+- A power-of-two size histogram (`<=0x10`, `<=0x20`, ...)
+- Largest busy allocations with dump buttons (`heap.stats.top_count`)
+- Adjacent free-run analysis: coalescible byte totals and per-run details as a fragmentation hint
+
+Large free runs are normal after bursts of frees; sudden growth across snapshots often points at fragmentation or a leak/free mismatch.
+
+## Cross References (xref)
+
+```text
+!wef.heaps xref <addr>
+!wef.heaps xref <addr> <heap-address>
+```
+
+`xref` scans chunk user data for pointer-sized little-endian references to the target address. This answers "who still points at this allocation" during use-after-free analysis.
+
+Hits in free chunks are marked `(stale)` in red; those are dangling-reference evidence. Hits in busy chunks show live holders.
+
+Limits follow `heap.find.max_hits` and `heap.find.max_chunk_read`.
+
 ## Decode Heap Flags
 
 ```text
@@ -182,6 +216,21 @@ Modern Windows often uses LFH. Some LFH state is not represented as simple backe
 
 ```text
 !wef.chunk @rax
+```
+
+### Check whether a freed allocation is still referenced
+
+```text
+!wef.chunk <freed-user-addr>
+!wef.heaps xref <freed-user-addr>
+```
+
+### Profile a heap before and after an operation
+
+```text
+!wef.heaps stats
+g
+!wef.heaps stats
 ```
 
 ### Search all heaps for a marker
