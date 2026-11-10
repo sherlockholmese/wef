@@ -1,7 +1,5 @@
 #include "aliases.hpp"
 
-#include <array>
-
 namespace wef {
 
 namespace {
@@ -11,7 +9,20 @@ struct AliasMapping {
     const char* target;
 };
 
-constexpr std::array<AliasMapping, 36> kAliases = {{
+constexpr AliasMapping kAliases[] = {
+    {"search", "!wef.search"},
+    {"cyclic", "!wef.cyclic"},
+    {"scan", "!wef.scan"},
+    {"rop", "!wef.rop"},
+    {"nearpc", "!wef.nearpc"},
+    {"distance", "!wef.distance"},
+    {"dumpargs", "!wef.dumpargs"},
+    {"hex2ptr", "!wef.hex2ptr"},
+    {"stub", "!wef.stub"},
+    {"nextcall", "!wef.nextcall"},
+    {"nextret", "!wef.nextret"},
+    {"stepout", "!wef.stepout"},
+    {"regs", "!wef.regs"},
     {"ctx", "!wef.ctx"},
     {"context", "!wef.context"},
     {"registers", "!wef.registers"},
@@ -48,7 +59,7 @@ constexpr std::array<AliasMapping, 36> kAliases = {{
     {"stack", "!wef.stack"},
     {"ttd-events", "!wef.ttd"},
     {"wef-config", "!wef.config"},
-}};
+};
 
 }
 

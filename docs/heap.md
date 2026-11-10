@@ -2,6 +2,8 @@
 
 WEF heap commands provide GEF-adjacent heap inspection for Windows process heaps. They rely on PEB heap lists and `ntdll` heap type symbols where available.
 
+NT backend entry headers are decoded with the heap's encoding key using symbol-derived offsets. WEF checks allocator signatures before walking NT structures and identifies incomplete walks. Statistics and visualizations describe backend blocks; LFH container blocks are not individual user allocations.
+
 ## Quick Workflow
 
 ```text
@@ -70,7 +72,7 @@ Use DML buttons from the visual view:
 !wef.heaps chunk <addr>
 ```
 
-The address can point at the chunk header or user data. WEF walks backend chunks and reports the chunk containing that address.
+The address can point at the chunk header or user data. WEF walks backend chunks and reports the chunk containing that address. If no backend chunk is found, it invokes Windows `!ext.heap -x` to inspect LFH, segment heaps, and other native allocator state.
 
 Output includes:
 
@@ -202,13 +204,38 @@ Validation is intentionally lightweight and read-only. It checks walked backend 
 
 - Zero or misaligned sizes
 - Overlapping chunks
+- Invalid encoded-header checksums and adjacent `PreviousSize` mismatches
 - Walk truncation due to limits or unreadable metadata
 
 It does not call process-mutating heap validation APIs.
 
 ## LFH Notes
 
-Modern Windows often uses LFH. Some LFH state is not represented as simple backend chunks, and private symbols vary between Windows versions. WEF reports what it can walk safely and warns when LFH or missing symbols may hide backend chunks.
+Modern Windows often uses LFH or segment heaps. WEF's formatted backend tables do not enumerate their individual allocations. Use Microsoft's native allocator analysis through WEF:
+
+```text
+!wef.heaps native
+!wef.heaps native stats [heap-address]
+!wef.heaps native chunks [heap-address]
+!wef.heaps lfh [nt-heap-address]
+!wef.heaps freelist [nt-heap-address]
+!wef.heaps triage [heap-or-address]
+!wef.heaps pageheap [address]
+!wef.heaps native leaks
+```
+
+The bracketed arguments above are optional; omit the brackets when entering an address. These commands invoke Windows `!ext.heap` and display its output. `lfh` / `freelist` are NT heap operations. `native stats`, `native chunks` and `triage` cover segment heaps using the installed Windows debugger. Page heap inspection requires page heap to have been enabled for the target. Native leak output reports reachability-based candidates, which need investigation.
+
+## Compare Heap Stops
+
+```text
+!wef.heaps snapshot <heap-address>
+g
+!wef.heaps diff <heap-address>
+!wef.heaps snapshot-clear
+```
+
+`snapshot` saves observed busy NT backend chunks for the current process. `diff` compares addresses, sizes, and heap ownership using the same heap selection and L limit; it reports added, missing, and changed blocks. The baseline remains until replaced or cleared. Both captures identify partial coverage. Missing blocks in an incomplete walk may be unreadable or outside the walk limits. Address reuse between stops and allocations created and freed between captures cannot be detected. This is a comparison of observations, not allocation/free instrumentation. See the [parity reference](parity.md) for remaining allocator gaps.
 
 ## Common Heap Triage Recipes
 

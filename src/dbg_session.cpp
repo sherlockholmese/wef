@@ -1,6 +1,7 @@
 #include "dbg_session.hpp"
 
 #include <cstdio>
+#include <cctype>
 #include <iomanip>
 #include <initializer_list>
 #include <sstream>
@@ -242,8 +243,15 @@ std::vector<RegisterValue> DbgSession::readCommonRegisters() const {
 bool DbgSession::evaluate(std::string_view expression, ULONG64& value) const {
     const std::string copy(expression);
     DEBUG_VALUE dbgValue = {};
-    const HRESULT hr = control_->Evaluate(copy.c_str(), DEBUG_VALUE_INT64, &dbgValue, nullptr);
+    ULONG remainder = 0;
+    const HRESULT hr = control_->Evaluate(copy.c_str(), DEBUG_VALUE_INT64, &dbgValue, &remainder);
     if (FAILED(hr)) {
+        return false;
+    }
+    while (remainder < copy.size() && std::isspace(static_cast<unsigned char>(copy[remainder])) != 0) {
+        ++remainder;
+    }
+    if (remainder != copy.size()) {
         return false;
     }
     value = dbgValue.I64;

@@ -32,7 +32,8 @@ void hexdumpUsage(const Output& out) {
 }
 
 void searchUsage(const Output& out) {
-    out.line("usage: !wef.search_pattern <text|addr|hex:414243> [start] [L<size>] [-max <count>] [-x|-w|-rwx] [-image|-mapped|-private]");
+    out.line("usage: !wef.search_pattern [-t byte|word|dword|qword|pointer|string|wide|bytes] <value> [start] [L<size>] [-max <count>] [-a <alignment>] [-module <name>] [-x|-w|-rwx] [-image|-mapped|-private]");
+    out.line("       !wef.search uses pwndbg spellings: -x hex, -e executable, -1/-2/-4/-8/-p integer width.");
 }
 
 std::string byteToHex(unsigned char value) {
@@ -508,12 +509,6 @@ HRESULT runSearchPattern(DbgSession& session, const Output& out, const std::vect
         return S_OK;
     }
 
-    std::vector<unsigned char> pattern;
-    if (!parseSearchPattern(session, args[0], pattern)) {
-        out.error("could not parse search pattern\n");
-        return S_OK;
-    }
-
     ULONG64 start = 0;
     ULONG64 size = session.pointerSize() == 8 ? 0x0000800000000000ULL : 0xffffffffULL;
     ULONG64 maxHits = configGetNumber("search.max_hits", 80);
@@ -523,13 +518,19 @@ HRESULT runSearchPattern(DbgSession& session, const Output& out, const std::vect
     bool onlyImage = false;
     bool onlyMapped = false;
     bool onlyPrivate = false;
+    bool hexInput = false;
+    ULONG64 alignment = 1;
+    std::string type;
+    std::string token;
+    std::string module;
+    bool gotPattern = false;
 
-    for (size_t i = 1; i < args.size(); ++i) {
-        if (args[i] == "-x") {
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (args[i] == "-x" || args[i] == "-e" || args[i] == "--executable") {
             wantExecute = true;
             continue;
         }
-        if (args[i] == "-w") {
+        if (args[i] == "-w" || args[i] == "--writable") {
             wantWrite = true;
             continue;
         }
@@ -550,6 +551,33 @@ HRESULT runSearchPattern(DbgSession& session, const Output& out, const std::vect
             onlyPrivate = true;
             continue;
         }
+        if (args[i] == "--hex") {
+            hexInput = true;
+            continue;
+        }
+        if ((args[i] == "-t" || args[i] == "--type") && i + 1 < args.size()) {
+            type = args[++i];
+            continue;
+        }
+        if ((args[i] == "-a" || args[i] == "--aligned") && i + 1 < args.size()) {
+            if (!parseDecimalCount(args[++i], alignment) || alignment == 0) {
+                out.error("alignment must be positive\n");
+                return S_OK;
+            }
+            continue;
+        }
+        if ((args[i] == "-module" || args[i] == "--module") && i + 1 < args.size()) {
+            module = args[++i];
+            std::transform(module.begin(), module.end(), module.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            continue;
+        }
+        if ((args[i] == "-l" || args[i] == "--limit") && i + 1 < args.size()) {
+            if (!parseDecimalCount(args[++i], maxHits)) {
+                searchUsage(out);
+                return S_OK;
+            }
+            continue;
+        }
         if (args[i] == "-max" && i + 1 < args.size()) {
             ULONG64 parsed = 0;
             if (!parseNumber(args[i + 1], parsed)) {
@@ -561,6 +589,15 @@ HRESULT runSearchPattern(DbgSession& session, const Output& out, const std::vect
             continue;
         }
 
+        if (!args[i].empty() && args[i][0] == '-') {
+            searchUsage(out);
+            return S_OK;
+        }
+        if (!gotPattern) {
+            token = args[i];
+            gotPattern = true;
+            continue;
+        }
         ULONG64 parsed = 0;
         if (parseLengthToken(args[i], parsed)) {
             size = parsed;
@@ -575,6 +612,44 @@ HRESULT runSearchPattern(DbgSession& session, const Output& out, const std::vect
         return S_OK;
     }
 
+    if (!gotPattern || maxHits == 0 || size == 0) {
+        searchUsage(out);
+        return S_OK;
+    }
+    std::vector<unsigned char> pattern;
+    ULONG width = type == "byte" ? 1 : type == "short" || type == "word" ? 2 :
+        type == "dword" ? 4 : type == "qword" ? 8 : type == "pointer" ? session.pointerSize() : 0;
+    if (width != 0) {
+        ULONG64 value = 0;
+        if (!evalAddress(session, token, value) || (width < 8 && value >> (width * 8) != 0)) {
+            out.error("integer does not fit the selected search width\n");
+            return S_OK;
+        }
+        pattern = numberBytes(value, width);
+    } else if (hexInput) {
+        if (!parseHexBytes(token, pattern)) {
+            out.error("invalid hexadecimal search bytes\n");
+            return S_OK;
+        }
+    } else if (type == "string" || type == "bytes") {
+        pattern.assign(token.begin(), token.end());
+    } else if (type == "wide") {
+        const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, token.data(), static_cast<int>(token.size()), nullptr, 0);
+        if (count > 0) {
+            std::wstring wide(static_cast<size_t>(count), L'\0');
+            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, token.data(), static_cast<int>(token.size()), wide.data(), count);
+            const auto* begin = reinterpret_cast<const unsigned char*>(wide.data());
+            pattern.assign(begin, begin + wide.size() * sizeof(wchar_t));
+        }
+    } else if (!type.empty() || !parseSearchPattern(session, token, pattern)) {
+        out.error("invalid search type or pattern\n");
+        return S_OK;
+    }
+    if (pattern.empty() || pattern.size() > 0x10000) {
+        out.error("search pattern must contain 1..65536 bytes\n");
+        return S_OK;
+    }
+
     out.heading("Search Pattern");
     out.field("pattern", bytesToHex(pattern));
     out.line("  hit                protect      type      module/preview                          actions");
@@ -585,6 +660,10 @@ HRESULT runSearchPattern(DbgSession& session, const Output& out, const std::vect
     ULONG64 hits = 0;
     ULONG64 regions = 0;
     while (address < endLimit && regions < 200000 && hits < maxHits) {
+        if (session.control()->GetInterrupt() == S_OK) {
+            out.warning("search interrupted\n");
+            return S_OK;
+        }
         MEMORY_BASIC_INFORMATION64 info = {};
         if (!session.queryVirtual(address, info)) {
             if (address == 0) {
@@ -596,7 +675,10 @@ HRESULT runSearchPattern(DbgSession& session, const Output& out, const std::vect
 
         const ULONG64 base = info.BaseAddress;
         const ULONG64 regionSize = info.RegionSize;
-        const ULONG64 regionEnd = regionSize == 0 ? base : base + regionSize;
+        const ULONG64 regionEnd = regionSize > std::numeric_limits<ULONG64>::max() - base ?
+            std::numeric_limits<ULONG64>::max() : base + regionSize;
+        std::string regionModule = session.moduleNameForOffset(base);
+        std::transform(regionModule.begin(), regionModule.end(), regionModule.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         if (info.State == MEM_COMMIT &&
             !hasGuardOrNoAccess(info.Protect) &&
             isReadableProtect(info.Protect) &&
@@ -604,10 +686,15 @@ HRESULT runSearchPattern(DbgSession& session, const Output& out, const std::vect
             (!wantWrite || hasWriteProtect(info.Protect)) &&
             (!onlyImage || info.Type == MEM_IMAGE) &&
             (!onlyMapped || info.Type == MEM_MAPPED) &&
-            (!onlyPrivate || info.Type == MEM_PRIVATE)) {
+            (!onlyPrivate || info.Type == MEM_PRIVATE) &&
+            (module.empty() || regionModule.find(module) != std::string::npos)) {
             ULONG64 searchBase = std::max(base, start);
             ULONG64 searchEnd = std::min(regionEnd, endLimit);
             while (searchBase < searchEnd && hits < maxHits) {
+                if (session.control()->GetInterrupt() == S_OK) {
+                    out.warning("search interrupted\n");
+                    return S_OK;
+                }
                 ULONG64 match = 0;
                 const ULONG64 searchSize = searchEnd - searchBase;
                 const HRESULT hr = session.dataSpaces()->SearchVirtual(
@@ -617,8 +704,12 @@ HRESULT runSearchPattern(DbgSession& session, const Output& out, const std::vect
                     static_cast<ULONG>(pattern.size()),
                     1,
                     &match);
-                if (FAILED(hr)) {
+                if (FAILED(hr) || match < searchBase || match >= searchEnd || pattern.size() > searchEnd - match) {
                     break;
+                }
+                searchBase = match + 1;
+                if (match % alignment != 0) {
+                    continue;
                 }
 
                 const std::string module = session.moduleNameForOffset(match);
@@ -646,7 +737,6 @@ HRESULT runSearchPattern(DbgSession& session, const Output& out, const std::vect
                     dmlCommandLink("chunk", "!wef.chunk " + formatAddress(match));
                 out.dmlLine(plain, dml);
                 ++hits;
-                searchBase = match + 1;
             }
         }
 
@@ -664,6 +754,27 @@ HRESULT runSearchPattern(DbgSession& session, const Output& out, const std::vect
         out.warning("search results truncated; increase -max or search.max_hits\n");
     }
     return S_OK;
+}
+
+HRESULT runSearch(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    std::vector<std::string> translated;
+    for (size_t i = 0; i < args.size(); ++i) {
+        const auto& arg = args[i];
+        if (arg == "-x" || arg == "--hex") {
+            translated.push_back("--hex");
+        } else if (arg == "-1" || arg == "-2" || arg == "-4" || arg == "-8" || arg == "-p" || arg == "--pointer") {
+            translated.push_back("-t");
+            translated.push_back(arg == "-1" ? "byte" : arg == "-2" ? "word" : arg == "-4" ? "dword" : arg == "-8" ? "qword" : "pointer");
+        } else {
+            translated.push_back(arg);
+            // Option operands are literal values, even if they resemble switches.
+            if ((arg == "-t" || arg == "--type" || arg == "-a" || arg == "--aligned" ||
+                 arg == "-module" || arg == "--module" || arg == "-l" || arg == "--limit" || arg == "-max") && i + 1 < args.size()) {
+                translated.push_back(args[++i]);
+            }
+        }
+    }
+    return runSearchPattern(session, out, translated);
 }
 
 HRESULT runPrintFormat(DbgSession& session, const Output& out, const std::vector<std::string>& args) {

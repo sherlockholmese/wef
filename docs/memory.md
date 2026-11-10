@@ -2,6 +2,8 @@
 
 This page covers WEF commands for memory maps, memory searches, hexdumps, pointer inspection, and cyclic patterns.
 
+For typed searches (`!wef.search`), mapping-to-mapping pointer scans (`!wef.scan`), and executable-memory gadgets (`!wef.rop`), see the [GEF/pwndbg parity reference](parity.md). It also documents supported upstream switches and differences.
+
 ## VMMap
 
 ```text
@@ -201,27 +203,29 @@ Telescope annotates pointer-sized values with symbols, strings, memory region da
 ## Cyclic Patterns
 
 ```text
-!wef.pattern create <length>
-!wef.pattern offset <value|ascii> [L<max-length>]
+!wef.pattern create [-n <width>] [-a <alphabet>] [--legacy] <length>
+!wef.pattern offset [-n <width>] [--legacy] <value|str:text> [L<max-length>]
+!wef.cyclic [-n <width>] [<length>|-l <value>]
 ```
 
 Create a pattern:
 
 ```text
-!wef.pattern create 512
+!wef.pattern create -n 4 512
 ```
 
 Find an offset:
 
 ```text
-!wef.pattern offset Aa3A L8192
-!wef.pattern offset 0x41336141 L8192
+!wef.pattern offset -n 4 str:daaa L1000
+!wef.pattern offset -n 4 0x61616164 L1000
 ```
 
-The pattern follows the common GEF/metasploit-style alphabet order:
+Patterns now use the same lowercase De Bruijn ordering as GEF/pwntools. Width defaults to the target pointer size (8 on x64), so use `-n 4` explicitly when working with four-byte patterns. Searches report both endian orders. `str:` forces a literal token. The legacy sequence is still available explicitly:
 
 ```text
-Aa0 Aa1 Aa2 ... Az9 Ba0 ...
+!wef.pattern create --legacy 512
+!wef.pattern offset --legacy 0x41336141 L1000
 ```
 
 ## Exploit Triage Recipes
@@ -232,7 +236,7 @@ Aa0 Aa1 Aa2 ... Az9 Ba0 ...
 !wef.pattern offset @rip L8192
 ```
 
-If the full register value does not match, try the lower 4-byte token from the overwritten value.
+Use the same `-n` as pattern creation. Four-byte overwrites should use a four-byte sequence and `-n 4`; wider numeric values are rejected instead of being silently truncated.
 
 ### Find executable private memory
 

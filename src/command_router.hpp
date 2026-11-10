@@ -17,9 +17,22 @@ HRESULT executeCommand(IDebugClient* client, PCSTR args, CommandHandler handler)
 std::vector<std::string> splitArgs(PCSTR args);
 bool parseLengthToken(std::string_view token, ULONG64& value);
 bool parseNumber(std::string_view text, ULONG64& value);
+bool parseDecimalCount(std::string_view text, ULONG64& value);
 std::string joinArgs(const std::vector<std::string>& args, size_t start, size_t end);
 
 namespace commands {
+HRESULT Search(IDebugClient* client, PCSTR args);
+HRESULT Cyclic(IDebugClient* client, PCSTR args);
+HRESULT Scan(IDebugClient* client, PCSTR args);
+HRESULT Rop(IDebugClient* client, PCSTR args);
+HRESULT Nearpc(IDebugClient* client, PCSTR args);
+HRESULT Distance(IDebugClient* client, PCSTR args);
+HRESULT Dumpargs(IDebugClient* client, PCSTR args);
+HRESULT Hex2ptr(IDebugClient* client, PCSTR args);
+HRESULT Stub(IDebugClient* client, PCSTR args);
+HRESULT Nextcall(IDebugClient* client, PCSTR args);
+HRESULT Nextret(IDebugClient* client, PCSTR args);
+HRESULT Stepout(IDebugClient* client, PCSTR args);
 
 HRESULT WefHelp(IDebugClient* client, PCSTR args);
 HRESULT Install(IDebugClient* client, PCSTR args);

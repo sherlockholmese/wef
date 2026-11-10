@@ -29,10 +29,12 @@ std::map<std::string, std::string>& store() {
         {"memory.watch.max_size", "4096"},
         {"output.use_dml", "true"},
         {"pattern.max_length", "8192"},
+        {"patch.max_size", "1048576"},
         {"print.max_length", "4096"},
         {"regs.annotate", "true"},
         {"regs.show_diff", "true"},
         {"search.max_hits", "80"},
+        {"scan.max_bytes", "268435456"},
         {"stack.count", "20"},
         {"stack.cookie.max_scan", "1048576"},
         {"telescope.count", "20"},
@@ -120,7 +122,7 @@ std::vector<std::pair<std::string, std::string>> configItems() {
 
 HRESULT runConfig(DbgSession&, const Output& out, const std::vector<std::string>& args) {
     if (args.empty() || args[0] == "get") {
-        if (args.size() == 1) {
+        if (args.size() <= 1) {
             for (const auto& [key, value] : configItems()) {
                 out.line("  " + key + " = " + value);
             }

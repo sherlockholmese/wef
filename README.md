@@ -84,6 +84,8 @@ Canonical commands like `!wef.ctx` always work, even without aliases.
 
 WEF uses WinDbg DML by default. In WinDbg, bracketed actions such as `[dump]`, `[chunk]`, `[vis]`, or `[ttd gui]` are clickable command buttons.
 
+GEF/pwndbg users can find the Windows command mappings, supported options, and remaining gaps in the [parity reference](docs/parity.md). Runtime verification uses the [Windows parity tests](tests/README.md).
+
 ## Commands
 
 ```text
@@ -95,9 +97,24 @@ WEF uses WinDbg DML by default. In WinDbg, bracketed actions such as `[dump]`, `
 !wef.telescope [addr] L<count>
 !wef.hexdump <addr> L<size>
 !wef.search_pattern <text|addr|hex:bytes> [start] [L<size>]
+!wef.search [-t <type>|-1|-2|-4|-8|-p] <value> [start] [L<size>]
+!wef.scan <source-mapping> <target-mapping> [-unaligned]
+!wef.rop ["pop rcx; ret"] [-module <name>|-range <start:end>]
+!wef.nearpc [address] [L<count>] [-before <count>]
+!wef.distance <from> <to>
+!wef.dumpargs [L<count>] [--entry]
+!wef.hex2ptr <hex-bytes>
 !wef.vmmap [-all|-free] [-commit|-reserve] [-x|-w|-rwx] [-image|-mapped|-private] [-module <name>] [-contains <addr>] [L<count>]
 !wef.pattern create <length>
 !wef.pattern offset <value|ascii> [L<max-length>]
+!wef.cyclic [-n <width>] [-a <alphabet>] [<length>|-l <value>]
+!wef.patch byte|word|dword|qword|string|hex ...
+!wef.patch list|revert [all]
+!wef.nop [address] [--n <instructions>|--b <bytes>|L<bytes>]
+!wef.stub <function-entry> [return-value]
+!wef.nextcall
+!wef.nextret
+!wef.stepout
 !wef.checksec
 !wef.registers [-plain|-reset|<register>]
 !wef.colors
@@ -110,6 +127,10 @@ WEF uses WinDbg DML by default. In WinDbg, bracketed actions such as `[dump]`, `
 !wef.heaps stats [L<count>|heap-address]
 !wef.heaps xref <addr> [L<count>|heap-address]
 !wef.heaps validate [L<count>|heap-address]
+!wef.heaps snapshot|diff [L<count>|heap-address]
+!wef.heaps snapshot-clear
+!wef.heaps native [summary|chunks|stats|chunk|validate|freelist|lfh|leaks|pageheap] [address]
+!wef.heaps lfh|freelist|triage|pageheap [address]
 !wef.chunk <addr>
 !wef.vis [L<count>|heap-address]
 !vis [L<count>|heap-address]
@@ -126,13 +147,19 @@ WEF uses WinDbg DML by default. In WinDbg, bracketed actions such as `[dump]`, `
 !wef.config set <key> <value>
 ```
 
-Aliases installed by `!wef.install`:
+Selected aliases installed by `!wef.install` (use `!wef.aliases` for the complete list):
 
 ```text
 ctx
 telescope
 hexdump
 search-pattern
+search
+cyclic
+scan
+rop
+nearpc
+dumpargs
 vmmap
 pattern
 checksec
@@ -158,7 +185,9 @@ wef-config
 
 `!wef.vis` prints a compact heap map, summary counts, and the largest chunks instead of dumping every chunk. Use the DML buttons or `!wef.heaps chunks <heap>` for the full table.
 
-`!wef.heaps stats` aggregates Windows NT-heap backend chunks per heap: busy/free counts and bytes, utilization, a power-of-two size histogram, largest busy allocations, and adjacent-free-run hints for fragmentation. `!wef.heaps xref <addr>` scans chunk data for pointer-sized references to an allocation; hits in free chunks are marked `(stale)` as use-after-free evidence. `!wef.heaps chunk <addr>` flags addresses that fall inside freed chunks.
+`!wef.heaps stats` aggregates decoded Windows NT-heap backend chunks per heap: busy/free counts and bytes, utilization, a power-of-two size histogram, largest busy allocations, and adjacent-free-run hints for fragmentation. `!wef.heaps xref <addr>` scans chunk data for pointer-sized references; hits in free chunks are marked `(stale)`, which can help investigate use-after-free issues but does not establish that a pointer was used. `!wef.heaps chunk <addr>` falls back to WinDbg's native allocator lookup when the backend walker cannot locate the address.
+
+`!wef.heaps native stats`, `!wef.heaps lfh`, and `!wef.heaps triage` use Windows `ext.dll` for allocator-aware statistics, LFH enumeration, and corruption checks. `snapshot` and `diff` compare observed busy NT backend chunks between stops; their output identifies partial coverage.
 
 ### Stack workflow
 
@@ -190,12 +219,16 @@ Run `!wef.colors` to verify DML color output works in your debugger host; it pri
 !wef.search_pattern hex:41414141
 !wef.search_pattern str:password
 !wef.pattern create 512
-!wef.pattern offset Aa3A L8192
+!wef.pattern offset -n 4 0x61616164 L1000
+!wef.cyclic -n 4 512
+!wef.search -4 0x41414141 @rsp L1000
+!wef.scan stack ntdll
+!wef.rop "pop rcx; ret" -module ntdll
 !wef.vmmap -x
 !wef.vmmap -contains @rsp
 ```
 
-`search_pattern` scans committed readable memory and supports text, numeric pointer-sized values, and `hex:` byte patterns. `pattern` uses a GEF/metasploit-style cyclic pattern.
+`search_pattern` scans committed readable memory and supports text, numeric pointer-sized values, and `hex:` byte patterns. `search` adds familiar typed-search switches. `pattern` and `cyclic` generate pwntools-compatible De Bruijn patterns, defaulting to the target pointer width. Pass `-n 4` for four-byte subsequences or `--legacy` to work with older WEF/Metasploit patterns.
 
 ### TTD Event Explorer
 
@@ -237,7 +270,9 @@ heap.vis.max_segments = 16
 heap.vis.width = 80
 heap.stats.top_count = 5
 pattern.max_length = 8192
+patch.max_size = 1048576
 search.max_hits = 80
+scan.max_bytes = 268435456
 stack.count = 20
 stack.cookie.max_scan = 1048576
 regs.annotate = true

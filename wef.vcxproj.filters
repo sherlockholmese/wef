@@ -23,6 +23,7 @@
     <ClCompile Include="src\context.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\dbg_session.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\extension.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\exploit.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\heap.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\instruction.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\memory.cpp"><Filter>Source Files</Filter></ClCompile>
@@ -42,6 +43,7 @@
     <ClInclude Include="src\config.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\context.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\dbg_session.hpp"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\exploit.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\heap.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\instruction.hpp"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\memory.hpp"><Filter>Header Files</Filter></ClInclude>

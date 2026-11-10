@@ -3,8 +3,13 @@
 #include "config.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cstring>
+#include <limits>
 #include <map>
+#include <mutex>
 #include <optional>
+#include <set>
 #include <vector>
 
 namespace wef {
@@ -22,6 +27,7 @@ struct HeapSummary {
     bool gotFrontEnd = false;
     MEMORY_BASIC_INFORMATION64 region = {};
     bool gotRegion = false;
+    std::string kind = "unknown";
 };
 
 struct HeapChunk {
@@ -91,14 +97,6 @@ bool readFieldUchar(DbgSession& session, ULONG64 base, PCSTR type, PCSTR field, 
     return readValue(session, base + offset, value);
 }
 
-bool readFieldUshort(DbgSession& session, ULONG64 base, PCSTR type, PCSTR field, USHORT& value) {
-    ULONG offset = 0;
-    if (!fieldOffset(session, type, field, offset)) {
-        return false;
-    }
-    return readValue(session, base + offset, value);
-}
-
 bool readFieldPointer(DbgSession& session, ULONG64 base, PCSTR type, PCSTR field, ULONG64& value) {
     ULONG offset = 0;
     if (!fieldOffset(session, type, field, offset)) {
@@ -110,6 +108,77 @@ bool readFieldPointer(DbgSession& session, ULONG64 base, PCSTR type, PCSTR field
 ULONG64 heapEntryUnit(const DbgSession& session) {
     return session.pointerSize() == 8 ? 16 : 8;
 }
+
+std::string allocatorKind(DbgSession& session, ULONG64 heap) {
+    ULONG signature = 0;
+    if (readFieldUlong(session, heap, "ntdll!_SEGMENT_HEAP", "Signature", signature) && signature == 0xddeeddee) {
+        return "segment";
+    }
+    if (readFieldUlong(session, heap, "ntdll!_HEAP", "Signature", signature) && signature == 0xeeffeeff) {
+        return "nt";
+    }
+    return "unknown";
+}
+
+struct EntryDecoder {
+    ULONG sizeOffset = 0;
+    ULONG flagsOffset = 0;
+    ULONG previousOffset = 0;
+    ULONG tagOffset = 0;
+    bool encoded = false;
+    bool hasTag = false;
+    std::array<unsigned char, 16> key = {};
+
+    bool initialize(DbgSession& session, ULONG64 heap) {
+        const ULONG unit = static_cast<ULONG>(heapEntryUnit(session));
+        ULONG mask = 0;
+        if (!fieldOffset(session, "ntdll!_HEAP_ENTRY", "Size", sizeOffset) ||
+            !fieldOffset(session, "ntdll!_HEAP_ENTRY", "Flags", flagsOffset) ||
+            !fieldOffset(session, "ntdll!_HEAP_ENTRY", "PreviousSize", previousOffset) ||
+            sizeOffset + 2 > unit || flagsOffset >= unit || previousOffset + 2 > unit ||
+            !readFieldUlong(session, heap, "ntdll!_HEAP", "EncodeFlagMask", mask)) {
+            return false;
+        }
+        hasTag = fieldOffset(session, "ntdll!_HEAP_ENTRY", "SmallTagIndex", tagOffset) && tagOffset < unit;
+        encoded = (mask & 0x00100000) != 0;
+        if (encoded) {
+            ULONG encodingOffset = 0;
+            ULONG read = 0;
+            if (!fieldOffset(session, "ntdll!_HEAP", "Encoding", encodingOffset) ||
+                FAILED(session.readVirtual(heap + encodingOffset, key.data(), unit, &read)) || read != unit) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool read(DbgSession& session, ULONG64 address, HeapChunk& chunk, std::string& failure) const {
+        std::array<unsigned char, 16> header = {};
+        const ULONG unit = static_cast<ULONG>(heapEntryUnit(session));
+        ULONG read = 0;
+        if (FAILED(session.readVirtual(address, header.data(), unit, &read)) || read != unit) {
+            failure = "unreadable header";
+            return false;
+        }
+        if (encoded) {
+            for (ULONG i = 0; i < unit; ++i) {
+                header[i] ^= key[i];
+            }
+        }
+        std::memcpy(&chunk.sizeUnits, header.data() + sizeOffset, sizeof(chunk.sizeUnits));
+        std::memcpy(&chunk.previousSize, header.data() + previousOffset, sizeof(chunk.previousSize));
+        chunk.flags = header[flagsOffset]; // Flags is UCHAR, not USHORT.
+        if (encoded && hasTag && header[tagOffset] != (header[sizeOffset] ^ header[sizeOffset + 1] ^ header[flagsOffset])) {
+            failure = "encoded header checksum mismatch";
+            return false;
+        }
+        chunk.address = address;
+        chunk.userAddress = address + unit;
+        chunk.size = static_cast<ULONG64>(chunk.sizeUnits) * unit;
+        chunk.usableSize = chunk.size >= unit ? chunk.size - unit : 0;
+        return true;
+    }
+};
 
 bool rangeContains(ULONG64 base, ULONG64 size, ULONG64 address) {
     if (size == 0 || address < base) {
@@ -294,8 +363,17 @@ std::string heapKind(UCHAR frontEndType) {
     }
 }
 
-std::vector<HeapSegment> collectHeapSegments(DbgSession& session, const Output& out, ULONG64 heapAddress, ULONG64 maxSegments, bool quiet = false) {
+std::vector<HeapSegment> collectHeapSegments(DbgSession& session, const Output& out, ULONG64 heapAddress, ULONG64 maxSegments, bool quiet = false, bool* complete = nullptr) {
     std::vector<HeapSegment> segments;
+    if (complete != nullptr) {
+        *complete = false;
+    }
+    if (allocatorKind(session, heapAddress) != "nt") {
+        if (!quiet) {
+            out.warning("heap " + formatAddress(heapAddress) + " is a segment heap or has unavailable type symbols; use !wef.heaps native\n");
+        }
+        return segments;
+    }
     ULONG segmentListOffset = 0;
     ULONG segmentEntryOffset = 0;
     if (!fieldOffset(session, "ntdll!_HEAP", "SegmentList", segmentListOffset) ||
@@ -316,20 +394,29 @@ std::vector<HeapSegment> collectHeapSegments(DbgSession& session, const Output& 
     }
 
     ULONG64 segmentCount = 0;
+    std::set<ULONG64> visited;
+    maxSegments = std::min<ULONG64>(maxSegments, 4096);
     while (currentLink != 0 && currentLink != listHead && segmentCount < maxSegments) {
+        if (session.control()->GetInterrupt() == S_OK || currentLink < segmentEntryOffset || !visited.insert(currentLink).second) {
+            if (!quiet) {
+                out.warning("stopped heap segment walk: interrupted, invalid link, or cycle\n");
+            }
+            return segments;
+        }
         const ULONG64 segment = currentLink - segmentEntryOffset;
         ULONG64 nextLink = 0;
         if (!session.readPointer(currentLink, nextLink)) {
             if (!quiet) {
                 out.warning("stopped segment walk after unreadable LIST_ENTRY\n");
             }
-            break;
+            return segments;
         }
 
         ULONG64 firstEntry = 0;
         ULONG64 lastValidEntry = 0;
         if (readFieldPointer(session, segment, "ntdll!_HEAP_SEGMENT", "FirstEntry", firstEntry) &&
-            readFieldPointer(session, segment, "ntdll!_HEAP_SEGMENT", "LastValidEntry", lastValidEntry)) {
+            readFieldPointer(session, segment, "ntdll!_HEAP_SEGMENT", "LastValidEntry", lastValidEntry) &&
+            firstEntry < lastValidEntry && firstEntry % heapEntryUnit(session) == 0) {
             HeapSegment item;
             item.heap = heapAddress;
             item.address = segment;
@@ -337,56 +424,91 @@ std::vector<HeapSegment> collectHeapSegments(DbgSession& session, const Output& 
             item.lastValidEntry = lastValidEntry;
             item.gotRegion = session.queryVirtual(segment, item.region);
             segments.push_back(item);
+        } else {
+            if (!quiet) {
+                out.warning("invalid or unreadable heap segment bounds\n");
+            }
+            return segments;
         }
 
         currentLink = nextLink;
         ++segmentCount;
     }
 
+    if (complete != nullptr) {
+        *complete = currentLink == listHead;
+    }
+    if (currentLink != listHead && !quiet) {
+        out.warning("heap segment walk incomplete; check heap.vis.max_segments and symbols\n");
+    }
     return segments;
 }
 
-std::vector<HeapChunk> collectHeapChunks(DbgSession& session, const Output& out, ULONG64 heapAddress, ULONG64 maxSegments, ULONG64 maxChunks, bool quiet = false) {
+std::vector<HeapChunk> collectHeapChunks(DbgSession& session, const Output& out, ULONG64 heapAddress, ULONG64 maxSegments, ULONG64 maxChunks, bool quiet = false, bool* complete = nullptr) {
     std::vector<HeapChunk> chunks;
-    const auto segments = collectHeapSegments(session, out, heapAddress, maxSegments, quiet);
+    bool allSegments = false;
+    const auto segments = collectHeapSegments(session, out, heapAddress, maxSegments, quiet, &allSegments);
+    bool finished = allSegments;
+    if (complete != nullptr) {
+        *complete = false;
+    }
+    if (segments.empty()) {
+        return chunks;
+    }
+    EntryDecoder decoder;
+    if (!decoder.initialize(session, heapAddress)) {
+        if (!quiet) {
+            out.warning("heap entry decoding needs readable _HEAP.Encoding, EncodeFlagMask, and _HEAP_ENTRY symbols\n");
+        }
+        return chunks;
+    }
+    maxChunks = std::min<ULONG64>(maxChunks, 1000000);
     const ULONG64 entryUnit = heapEntryUnit(session);
     for (const auto& segment : segments) {
         ULONG64 entry = segment.firstEntry;
-        ULONG64 chunkCount = 0;
-        while (entry != 0 && entry < segment.lastValidEntry && chunks.size() < maxChunks && chunkCount < maxChunks) {
-            USHORT sizeUnits = 0;
-            USHORT flags = 0;
-            USHORT previousSize = 0;
-            if (!readFieldUshort(session, entry, "ntdll!_HEAP_ENTRY", "Size", sizeUnits) ||
-                !readFieldUshort(session, entry, "ntdll!_HEAP_ENTRY", "PreviousSize", previousSize)) {
+        while (entry < segment.lastValidEntry && chunks.size() < maxChunks) {
+            if (session.control()->GetInterrupt() == S_OK) {
+                finished = false;
                 break;
             }
-            readFieldUshort(session, entry, "ntdll!_HEAP_ENTRY", "Flags", flags);
-            if (sizeUnits == 0) {
-                break;
-            }
-
-            const ULONG64 chunkSize = static_cast<ULONG64>(sizeUnits) * entryUnit;
-            if (chunkSize < entryUnit) {
-                break;
-            }
-
             HeapChunk chunk;
+            std::string failure;
+            if (!decoder.read(session, entry, chunk, failure)) {
+                MEMORY_BASIC_INFORMATION64 info = {};
+                if (session.queryVirtual(entry, info) && info.State != MEM_COMMIT &&
+                    info.RegionSize <= std::numeric_limits<ULONG64>::max() - info.BaseAddress &&
+                    info.BaseAddress + info.RegionSize > entry) {
+                    entry = std::min(segment.lastValidEntry, info.BaseAddress + info.RegionSize);
+                    continue;
+                }
+                if (!quiet) {
+                    out.warning(failure + " at " + formatAddress(entry) + "; heap walk is partial\n");
+                }
+                finished = false;
+                break;
+            }
+            if (chunk.size < entryUnit || chunk.size > segment.lastValidEntry - entry) {
+                if (!quiet) {
+                    out.warning("invalid chunk size at " + formatAddress(entry) + "; heap walk is partial\n");
+                }
+                finished = false;
+                break;
+            }
             chunk.heap = heapAddress;
             chunk.segment = segment.address;
-            chunk.address = entry;
-            chunk.userAddress = entry + entryUnit;
-            chunk.size = chunkSize;
-            chunk.usableSize = chunkSize - entryUnit;
-            chunk.sizeUnits = sizeUnits;
-            chunk.flags = flags;
-            chunk.previousSize = previousSize;
             chunks.push_back(chunk);
-            entry += chunkSize;
-            ++chunkCount;
+            entry += chunk.size;
+        }
+        if (entry != segment.lastValidEntry) {
+            finished = false;
         }
     }
-
+    if (complete != nullptr) {
+        *complete = finished;
+    }
+    if (!finished && !quiet) {
+        out.warning("partial NT backend coverage; limits, corruption, or unreadable pages may hide chunks\n");
+    }
     return chunks;
 }
 
@@ -606,9 +728,14 @@ HeapSummary inspectHeap(DbgSession& session, ULONG index, ULONG64 heapAddress) {
     HeapSummary heap;
     heap.index = index;
     heap.address = heapAddress;
-    heap.gotFlags = readFieldUlong(session, heapAddress, "ntdll!_HEAP", "Flags", heap.flags);
-    heap.gotForceFlags = readFieldUlong(session, heapAddress, "ntdll!_HEAP", "ForceFlags", heap.forceFlags);
-    heap.gotFrontEnd = readFieldUchar(session, heapAddress, "ntdll!_HEAP", "FrontEndHeapType", heap.frontEndType);
+    heap.kind = allocatorKind(session, heapAddress);
+    if (heap.kind == "nt") {
+        heap.gotFlags = readFieldUlong(session, heapAddress, "ntdll!_HEAP", "Flags", heap.flags);
+        heap.gotForceFlags = readFieldUlong(session, heapAddress, "ntdll!_HEAP", "ForceFlags", heap.forceFlags);
+        heap.gotFrontEnd = readFieldUchar(session, heapAddress, "ntdll!_HEAP", "FrontEndHeapType", heap.frontEndType);
+    } else if (heap.kind == "segment") {
+        heap.gotFlags = readFieldUlong(session, heapAddress, "ntdll!_SEGMENT_HEAP", "GlobalFlags", heap.flags);
+    }
     heap.gotRegion = session.queryVirtual(heapAddress, heap.region);
     return heap;
 }
@@ -623,7 +750,7 @@ void printHeapRow(const Output& out, const HeapSummary& heap) {
     line += "  ";
     line += heap.gotForceFlags ? "0x" + formatHex(heap.forceFlags, 8) : "unavail   ";
     line += "  ";
-    line += heap.gotFrontEnd ? heapKind(heap.frontEndType) : "unavail";
+    line += heap.kind == "nt" && heap.gotFrontEnd ? "nt/" + heapKind(heap.frontEndType) : heap.kind;
     line += "  ";
     if (heap.gotRegion) {
         line += stateToString(heap.region.State) + " " + protectionToString(heap.region.Protect) + " " + typeToString(heap.region.Type);
@@ -652,7 +779,7 @@ std::vector<HeapSummary> collectHeaps(DbgSession& session, const Output& out, UL
         return heaps;
     }
 
-    const ULONG count = static_cast<ULONG>(heapCount > limit ? limit : heapCount);
+    const ULONG count = static_cast<ULONG>(std::min<ULONG64>({heapCount, limit, 4096}));
     heaps.reserve(count);
     for (ULONG i = 0; i < count; ++i) {
         ULONG64 heapAddress = 0;
@@ -736,7 +863,62 @@ void usage(const Output& out) {
     out.line("  !wef.heaps stats [L<count>|heap-address]");
     out.line("  !wef.heaps xref <addr> [L<count>|heap-address]");
     out.line("  !wef.heaps validate [L<count>|heap-address]");
+    out.line("  !wef.heaps snapshot|diff [L<count>|heap-address] (observed NT backend changes)");
+    out.line("  !wef.heaps snapshot-clear           (discard saved baselines)");
+    out.line("  !wef.heaps native [summary|chunks|stats|chunk|validate|freelist|lfh|leaks|pageheap] [heap-or-address]");
+    out.line("  !wef.heaps lfh|freelist|triage|pageheap [heap-or-address] (WinDbg native analysis)");
     out.line("  alias after !wef.install: wef-heap");
+}
+
+HRESULT runHeapNative(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    const std::string operation = args.size() > 1 ? args[1] : "summary";
+    if (args.size() > 3) {
+        usage(out);
+        return S_OK;
+    }
+    ULONG64 address = 0;
+    const bool hasAddress = args.size() == 3;
+    if (hasAddress && !evalAddress(session, args[2], address)) {
+        out.error("could not evaluate heap/address\n");
+        return S_OK;
+    }
+    std::string command = "!ext.heap";
+    if (operation == "summary") {
+        command += " -s";
+    } else if (operation == "chunks") {
+        command += " -s -a";
+    } else if (operation == "stats") {
+        command += hasAddress ? " -stat -h" : " -stat";
+    } else if (operation == "chunk") {
+        if (!hasAddress) {
+            out.line("usage: !wef.heaps native chunk <address>");
+            return S_OK;
+        }
+        command += " -x";
+    } else if (operation == "validate" || operation == "triage") {
+        command += " -triage";
+    } else if (operation == "lfh") {
+        command += " -hl";
+    } else if (operation == "freelist") {
+        command += " -f";
+    } else if (operation == "leaks" && !hasAddress) {
+        command += " -l";
+    } else if (operation == "pageheap") {
+        command += hasAddress ? " -p -a" : " -p";
+    } else {
+        usage(out);
+        return S_OK;
+    }
+    if (hasAddress) {
+        command += " " + formatAddress(address);
+    }
+    out.heading("Windows Native Heap Analysis");
+    out.field("Command", command);
+    const HRESULT hr = session.control()->Execute(DEBUG_OUTCTL_ALL_CLIENTS, command.c_str(), DEBUG_EXECUTE_DEFAULT);
+    if (FAILED(hr)) {
+        out.error("native heap analysis failed: " + formatHResult(hr) + "; ensure Windows ext.dll is available\n");
+    }
+    return hr;
 }
 
 HRESULT runHeapFlags(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
@@ -827,8 +1009,8 @@ HRESULT runHeapChunk(DbgSession& session, const Output& out, const std::vector<s
     const auto heaps = collectHeaps(session, out, configGetNumber("heap.max_count", 80), 0);
     const auto found = findContainingChunk(session, out, heaps, address);
     if (!found) {
-        out.error("no backend heap chunk contains " + formatAddress(address) + "\n");
-        return S_OK;
+        out.line("No decoded NT backend chunk contains " + formatAddress(address) + "; checking Windows native allocator data.");
+        return runHeapNative(session, out, {"native", "chunk", formatAddress(address)});
     }
 
     printDetailedChunk(out, *found, address);
@@ -899,30 +1081,49 @@ HRESULT runHeapValidate(DbgSession& session, const Output& out, const std::vecto
     const auto heaps = selectedHeaps(session, out, args, 1);
     out.heading("Heap Validation");
     ULONG64 issueCount = 0;
+    ULONG64 checked = 0;
+    bool complete = !heaps.empty();
     for (const auto& heap : heaps) {
         ULONG64 previousEnd = 0;
+        ULONG64 previousSegment = 0;
+        USHORT previousUnits = 0;
+        bool heapComplete = false;
         const auto chunks = collectHeapChunks(
             session,
             out,
             heap.address,
             configGetNumber("heap.vis.max_segments", 16),
-            configGetNumber("heap.chunk.max_search_chunks", 4096));
+            configGetNumber("heap.chunk.max_search_chunks", 4096), false, &heapComplete);
+        complete = complete && heapComplete;
+        checked += chunks.size();
         for (const auto& chunk : chunks) {
             if (chunk.size == 0 || (chunk.size % heapEntryUnit(session)) != 0) {
                 out.error("bad size at " + formatAddress(chunk.address) + "\n");
                 ++issueCount;
             }
-            if (previousEnd != 0 && chunk.address < previousEnd) {
+            if (previousSegment == chunk.segment && previousEnd != 0 && chunk.address < previousEnd) {
                 out.error("overlapping chunk at " + formatAddress(chunk.address) + "\n");
                 ++issueCount;
             }
+            if (previousSegment == chunk.segment && previousEnd == chunk.address && chunk.previousSize != previousUnits) {
+                out.error("PreviousSize mismatch at " + formatAddress(chunk.address) + "\n");
+                ++issueCount;
+            }
             previousEnd = chunk.address + chunk.size;
+            previousSegment = chunk.segment;
+            previousUnits = chunk.sizeUnits;
         }
         out.line("  " + formatAddress(heap.address) + ": checked " + formatHex(static_cast<ULONG64>(chunks.size())) + " chunks");
     }
-    if (issueCount == 0) {
-        out.line("  no structural issues found in walked backend chunks");
+    if (checked == 0) {
+        out.warning("validation inconclusive: no backend chunks decoded\n");
+    } else if (issueCount == 0) {
+        out.line("  no structural issues found in " + std::to_string(checked) + " decoded NT backend chunks");
     }
+    if (!complete) {
+        out.warning("validation coverage is incomplete\n");
+    }
+    out.dmlLine("  [native triage: LFH and segment heaps]", "  " + dmlCommandLink("native triage: LFH and segment heaps", "!wef.heaps triage"));
     return S_OK;
 }
 
@@ -1011,7 +1212,7 @@ void printHeapStatsBlock(DbgSession& session, const Output& out, const HeapSumma
     if (totalBytes > 0) {
         const ULONG64 busyPercent = (stats.busyBytes * 100) / totalBytes;
         out.line(
-            "    utilization: " + formatHex(busyPercent) + "% busy of 0x" + formatHex(totalBytes) +
+            "    utilization: " + std::to_string(busyPercent) + "% busy of 0x" + formatHex(totalBytes) +
             " bytes walked");
     }
 
@@ -1074,6 +1275,8 @@ void printHeapStatsBlock(DbgSession& session, const Output& out, const HeapSumma
 
 HRESULT runHeapStats(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
     out.heading("Heap Statistics");
+    out.line("Scope: decoded NT backend chunks; LFH suballocations and segment heaps require native stats.");
+    out.dmlLine("  [native stats]", "  " + dmlCommandLink("native stats", "!wef.heaps native stats"));
     const auto heaps = selectedHeaps(session, out, args, 1);
     if (heaps.empty()) {
         out.warning("no heaps selected\n");
@@ -1126,6 +1329,10 @@ HRESULT runHeapXref(DbgSession& session, const Output& out, const std::vector<st
             }
             auto found = bytes.begin();
             while ((found = std::search(found, bytes.end(), pattern.begin(), pattern.end())) != bytes.end()) {
+                if (shown >= maxHits || session.control()->GetInterrupt() == S_OK) {
+                    out.warning("cross-reference output truncated or interrupted\n");
+                    return S_OK;
+                }
                 const ULONG64 offset = static_cast<ULONG64>(found - bytes.begin());
                 const ULONG64 ref = chunk.userAddress + offset;
                 const bool stale = (chunk.flags & 0x01) == 0 && (chunk.flags & 0x08) == 0;
@@ -1152,6 +1359,115 @@ HRESULT runHeapXref(DbgSession& session, const Output& out, const std::vector<st
     return S_OK;
 }
 
+struct HeapSnapshot {
+    ULONG64 selection = 0;
+    ULONG64 limit = 0;
+    std::map<ULONG64, HeapChunk> busy;
+    bool complete = false;
+};
+
+HRESULT runHeapSnapshot(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    static std::map<std::pair<ULONG, ULONG64>, HeapSnapshot> snapshots;
+    static std::mutex snapshotMutex;
+    std::lock_guard<std::mutex> lock(snapshotMutex);
+    if (args[0] == "snapshot-clear") {
+        if (args.size() != 1) {
+            usage(out);
+            return S_OK;
+        }
+        snapshots.clear();
+        out.line("Heap snapshots cleared.");
+        return S_OK;
+    }
+    ULONG pid = 0;
+    ULONG64 peb = 0;
+    if (FAILED(session.systemObjects()->GetCurrentProcessSystemId(&pid)) || !session.evaluate("@$peb", peb)) {
+        out.error("process identity unavailable\n");
+        return S_OK;
+    }
+    HeapSnapshot current;
+    if (!parseHeapSelection(session, out, args, 1, current.selection, current.limit)) {
+        return S_OK;
+    }
+    const auto heaps = collectHeaps(session, out, current.limit, current.selection);
+    if (heaps.empty()) {
+        out.error("no heaps could be read; snapshot/diff not captured\n");
+        return S_OK;
+    }
+    current.complete = !heaps.empty();
+    for (const auto& heap : heaps) {
+        bool complete = false;
+        const auto chunks = collectHeapChunks(session, out, heap.address,
+            configGetNumber("heap.vis.max_segments", 16), configGetNumber("heap.chunk.max_search_chunks", 4096), true, &complete);
+        current.complete = current.complete && complete && heap.kind == "nt" && heap.gotFrontEnd && heap.frontEndType == 0;
+        for (const auto& chunk : chunks) {
+            if ((chunk.flags & 0x01) != 0 && (chunk.flags & 0x08) == 0) {
+                if (current.busy.size() >= 1000000) {
+                    out.error("snapshot exceeds one million entries; select a single heap\n");
+                    return S_OK;
+                }
+                current.busy.emplace(chunk.userAddress, chunk);
+            }
+        }
+    }
+    const auto key = std::make_pair(pid, peb);
+    if (args[0] == "snapshot") {
+        if (snapshots.size() >= 16 && !snapshots.contains(key)) {
+            out.error("snapshot process limit reached; use !wef.heaps snapshot-clear\n");
+            return S_OK;
+        }
+        snapshots[key] = std::move(current);
+        out.line("Saved heap snapshot: " + std::to_string(snapshots[key].busy.size()) + " observed busy backend chunks.");
+        if (!snapshots[key].complete) {
+            out.warning("snapshot is partial; missing/LFH/segment allocations are not tracked\n");
+        }
+        return S_OK;
+    }
+    const auto baseline = snapshots.find(key);
+    if (baseline == snapshots.end()) {
+        out.error("no baseline for this process; run !wef.heaps snapshot first\n");
+        return S_OK;
+    }
+    const auto& before = baseline->second;
+    if (before.selection != current.selection || before.limit != current.limit) {
+        out.error("diff must use the same heap selection and L limit as the snapshot\n");
+        return S_OK;
+    }
+    ULONG64 added = 0;
+    ULONG64 removed = 0;
+    ULONG64 resized = 0;
+    ULONG64 shown = 0;
+    const ULONG64 maxShown = configGetNumber("heap.find.max_hits", 80);
+    const auto print = [&](const char* state, const HeapChunk& chunk) {
+        if (shown++ < maxShown) {
+            out.line(std::string(state) + " " + formatAddress(chunk.userAddress) + " size=0x" + formatHex(chunk.size) + " heap=" + formatAddress(chunk.heap));
+        }
+    };
+    out.heading("Observed Heap Changes (NT backend)");
+    for (const auto& [address, chunk] : current.busy) {
+        const auto old = before.busy.find(address);
+        if (old == before.busy.end()) {
+            ++added;
+            print("added", chunk);
+        } else if (old->second.size != chunk.size || old->second.heap != chunk.heap) {
+            ++resized;
+            print("changed", chunk);
+        }
+    }
+    for (const auto& [address, chunk] : before.busy) {
+        if (!current.busy.contains(address)) {
+            ++removed;
+            print("missing", chunk);
+        }
+    }
+    out.line("Added: " + std::to_string(added) + ", missing: " + std::to_string(removed) + ", changed: " + std::to_string(resized));
+    if (!before.complete || !current.complete) {
+        out.warning("partial coverage: missing chunks may be outside walk limits or unreadable, rather than freed\n");
+    }
+    out.line("Address reuse between snapshots is not observable. Baseline is unchanged until the next snapshot.");
+    return S_OK;
+}
+
 }
 
 HRESULT runHeap(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
@@ -1162,6 +1478,17 @@ HRESULT runHeap(DbgSession& session, const Output& out, const std::vector<std::s
     }
 
     if (!args.empty()) {
+        if (args[0] == "native") {
+            return runHeapNative(session, out, args);
+        }
+        if (args[0] == "lfh" || args[0] == "freelist" || args[0] == "triage" || args[0] == "pageheap") {
+            std::vector<std::string> nativeArgs = {"native"};
+            nativeArgs.insert(nativeArgs.end(), args.begin(), args.end());
+            return runHeapNative(session, out, nativeArgs);
+        }
+        if (args[0] == "snapshot" || args[0] == "diff" || args[0] == "snapshot-clear") {
+            return runHeapSnapshot(session, out, args);
+        }
         if (args[0] == "help" || args[0] == "-h" || args[0] == "/?") {
             usage(out);
             return S_OK;

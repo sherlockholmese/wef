@@ -1,0 +1,115 @@
+.load "__WEF_DLL__"
+.sympath+ __FIXTURE_DIR__
+g
+.reload /f ntdll.dll
+!wef.config set output.use_dml false
+.echo WEF_CASE=pattern4
+!wef.pattern create -n 4 32
+.echo WEF_CASE=pattern8
+!wef.pattern create -n 8 32
+.echo WEF_CASE=offset4
+!wef.pattern offset -n 4 0x61616164 L100
+.echo WEF_CASE=literal
+!wef.pattern search -n 4 str:baaa L100
+.echo WEF_CASE=custom
+!wef.cyclic -n 2 -a abc 9
+.echo WEF_CASE=cyclic_lookup
+!wef.cyclic -n 4 -l 0x61616164
+.echo WEF_CASE=legacy
+!wef.pattern offset --legacy 0x41336141 L100
+.echo WEF_CASE=capacity
+!wef.pattern create -n 1 -a ab 3
+.echo WEF_CASE=negative
+!wef.pattern create -1
+.echo WEF_CASE=empty
+!wef.pattern create ""
+.echo WEF_CASE=typed_search
+!wef.search -4 0x55667788 wef_fixture!wef_patch_target L8
+.echo WEF_CASE=hex_search
+!wef.search -x 88776655 wef_fixture!wef_patch_target L8
+.echo WEF_CASE=wide_search
+!wef.search -t wide "wef wide marker" wef_fixture!wef_wide_target L20
+.echo WEF_CASE=search_overflow
+!wef.search -1 0x100 wef_fixture!wef_patch_target L8
+.echo WEF_CASE=scan
+!wef.scan wef_fixture!wef_pointer_slots:(wef_fixture!wef_pointer_slots+18) wef_fixture!wef_patch_target:(wef_fixture!wef_patch_target+8)
+.echo WEF_CASE=aligned_scan
+!wef.scan wef_fixture!wef_unaligned_pointer:(wef_fixture!wef_unaligned_pointer+10) wef_fixture!wef_patch_target:(wef_fixture!wef_patch_target+8)
+.echo WEF_CASE=unaligned_scan
+!wef.scan wef_fixture!wef_unaligned_pointer:(wef_fixture!wef_unaligned_pointer+10) wef_fixture!wef_patch_target:(wef_fixture!wef_patch_target+8) -unaligned
+.echo WEF_CASE=boundary_scan
+!wef.scan poi(wef_fixture!wef_scan_region):(poi(wef_fixture!wef_scan_region)+3000) wef_fixture!wef_patch_target:(wef_fixture!wef_patch_target+8) -unaligned
+.echo WEF_CASE=rop
+!wef.rop "pop rcx; ret" -range poi(wef_fixture!wef_gadget_region):(poi(wef_fixture!wef_gadget_region)+2000)
+.echo WEF_CASE=invalid_depth
+!wef.rop -depth 100000000000
+.echo WEF_CASE=reversed_range
+!wef.scan 0x2000:0x1000 all
+.echo WEF_CASE=invalid_before
+!wef.nearpc -before 65
+.echo WEF_CASE=nearpc
+!wef.nearpc wef_fixture!wef_branch_target L2
+.echo WEF_CASE=distance
+!wef.distance 0x1000 0x1018
+.echo WEF_CASE=negative_distance
+!wef.distance 0x1018 0x1000
+.echo WEF_CASE=hex2ptr
+!wef.hex2ptr "88 77 66 55 44 33 22 11"
+.echo WEF_CASE=dumpargs
+!wef.dumpargs L5 --entry
+.echo WEF_CASE=nop_instructions
+!wef.nop wef_fixture!wef_instruction_target --n 2
+!wef.hexdump wef_fixture!wef_instruction_target L6
+.echo WEF_CASE=nop_revert
+!wef.patch revert
+!wef.hexdump wef_fixture!wef_instruction_target L6
+.echo WEF_CASE=stub
+!wef.stub wef_fixture!wef_stub_target 0x2a
+!wef.hexdump wef_fixture!wef_stub_target Lb
+.echo WEF_CASE=stub_revert
+!wef.patch revert
+!wef.hexdump wef_fixture!wef_stub_target Lb
+.echo WEF_CASE=patch_conflict
+!wef.patch byte wef_fixture!wef_patch_target 0xaa
+eb wef_fixture!wef_patch_target bb
+!wef.patch revert
+eb wef_fixture!wef_patch_target aa
+.echo WEF_CASE=patch_restore
+!wef.patch revert
+!wef.patch list
+.echo WEF_CASE=heap_kind
+!wef.heaps poi(wef_fixture!wef_backend_heap)
+.echo WEF_CASE=heap_busy
+!wef.heaps chunks -busy -contains poi(wef_fixture!wef_busy_block) poi(wef_fixture!wef_backend_heap)
+.echo WEF_CASE=heap_free
+!wef.heaps chunks -free -contains poi(wef_fixture!wef_free_block) poi(wef_fixture!wef_backend_heap)
+.echo WEF_CASE=heap_validate
+!wef.heaps validate poi(wef_fixture!wef_backend_heap)
+.echo WEF_CASE=heap_corruption
+r @$t4 = by(poi(wef_fixture!wef_busy_block)-8)
+!wef.patch byte (poi(wef_fixture!wef_busy_block)-8) (@$t4^1)
+!wef.heaps validate poi(wef_fixture!wef_backend_heap)
+.echo WEF_CASE=heap_repair
+!wef.patch revert
+!wef.heaps validate poi(wef_fixture!wef_backend_heap)
+.echo WEF_CASE=heap_native_stats
+!wef.heaps native stats poi(wef_fixture!wef_backend_heap)
+.echo WEF_CASE=heap_native_lfh
+!wef.heaps lfh poi(wef_fixture!wef_lfh_heap)
+.echo WEF_CASE=heap_snapshot
+!wef.heaps snapshot poi(wef_fixture!wef_backend_heap)
+.echo WEF_CASE=heap_unchanged
+!wef.heaps diff poi(wef_fixture!wef_backend_heap)
+g
+.echo WEF_CASE=heap_changed
+!wef.heaps diff poi(wef_fixture!wef_backend_heap)
+.echo WEF_CASE=heap_clear
+!wef.heaps snapshot-clear
+.echo WEF_CASE=nextcall_export
+!wef.nextcall help
+.echo WEF_CASE=nextret_export
+!wef.nextret help
+.echo WEF_CASE=stepout_export
+!wef.stepout help
+.echo WEF_CASE=done
+q

@@ -4,6 +4,7 @@
 #include "breakpoints.hpp"
 #include "config.hpp"
 #include "context.hpp"
+#include "exploit.hpp"
 #include "heap.hpp"
 #include "memory.hpp"
 #include "modules.hpp"
@@ -15,6 +16,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cstdlib>
 
 namespace wef {
@@ -36,6 +38,13 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
     out.line("  !wef.dereference [<addr>] [L<count>]");
     out.line("  !wef.hexdump <addr> [L<size>] [-force]");
     out.line("  !wef.search_pattern <text|addr|hex:bytes> [start] [L<size>]");
+    out.line("  !wef.search [-t <type>|-1|-2|-4|-8|-p] <value> [start] [L<size>] [-x|-e|-w]");
+    out.line("  !wef.scan <source-mapping> <target-mapping> [-unaligned] [-max <count>]");
+    out.line("  !wef.rop [\"pop rcx; ret\"] [-module <name>|-range <start:end>] [-depth <count>]");
+    out.line("  !wef.nearpc [address] [L<count>] [-before <count>]");
+    out.line("  !wef.distance <from> <to>");
+    out.line("  !wef.dumpargs [L<count>] [--entry]");
+    out.line("  !wef.hex2ptr <hex-bytes>");
     out.line("  !wef.print_format [--lang <format>] [-l <length>] <address>");
     out.line("  !wef.xor_memory display|patch <address> <length> <key>");
     out.line("  !wef.memory watch|unwatch|list|reset ...");
@@ -50,17 +59,24 @@ HRESULT runHelp(DbgSession&, const Output& out, const std::vector<std::string>&)
     out.line("  !wef.iat [module] [filter]            (also: !wef.got)");
     out.line("  !wef.canary [module]");
     out.line("  !wef.pattern create|search|offset ...");
+    out.line("  !wef.cyclic [-n <width>] [-a <alphabet>] [<length>|-l <value>]");
     out.line("  !wef.patch byte|word|dword|qword|string|hex ...");
+    out.line("  !wef.patch list|revert [all]");
+    out.line("  !wef.stub <function-entry> [integer-return-value]");
     out.line("  !wef.nop [addr] [L<byte-count>|--n <count>|--b <count>]");
     out.line("  !wef.skipi [addr] [-n <instruction-count>]");
     out.line("  !wef.edit_flags <[+|-|~]FLAG> [...]");
     out.line("  !wef.stepover");
+    out.line("  !wef.nextcall | !wef.nextret | !wef.stepout");
     out.line("  !wef.entry_break");
     out.line("  !wef.name_break <name> [address]|list|delete ...");
     out.line("  !wef.checksec [module]");
     out.line("  !wef.heaps [L<count>|heap-address]    (alias: wef-heap)");
     out.line("  !wef.heaps flags|segments|chunks|chunk|find|validate ...");
     out.line("  !wef.heaps stats [heap] | xref <addr>  (statistics, cross references)");
+    out.line("  !wef.heaps snapshot|diff|snapshot-clear ...");
+    out.line("  !wef.heaps native [summary|chunks|stats|chunk|validate|freelist|lfh|leaks|pageheap] [addr]");
+    out.line("  !wef.heaps lfh|freelist|triage|pageheap [addr]");
     out.line("  !wef.chunk <addr>");
     out.line("  !wef.vis [L<count>|heap-address]");
     out.line("  !vis [L<count>|heap-address]");
@@ -175,7 +191,8 @@ bool parseNumber(std::string_view text, ULONG64& value) {
             cleaned.push_back(ch);
         }
     }
-    if (cleaned.empty()) {
+    if (cleaned.empty() || cleaned[0] == '-' || cleaned[0] == '+' ||
+        std::isspace(static_cast<unsigned char>(cleaned[0])) != 0) {
         return false;
     }
 
@@ -185,8 +202,21 @@ bool parseNumber(std::string_view text, ULONG64& value) {
     }
 
     char* end = nullptr;
+    errno = 0;
     value = std::strtoull(cleaned.c_str(), &end, base);
-    return end != nullptr && *end == '\0';
+    return errno != ERANGE && end != cleaned.c_str() && *end == '\0';
+}
+
+bool parseDecimalCount(std::string_view text, ULONG64& value) {
+    if (text.empty() || text[0] == '-' || text[0] == '+' ||
+        std::isspace(static_cast<unsigned char>(text[0])) != 0) {
+        return false;
+    }
+    const std::string copy(text);
+    char* end = nullptr;
+    errno = 0;
+    value = std::strtoull(copy.c_str(), &end, copy.starts_with("0x") || copy.starts_with("0X") ? 16 : 10);
+    return errno != ERANGE && end != copy.c_str() && *end == '\0';
 }
 
 bool parseLengthToken(std::string_view token, ULONG64& value) {
@@ -213,6 +243,57 @@ std::string joinArgs(const std::vector<std::string>& args, size_t start, size_t 
 }
 
 namespace commands {
+
+HRESULT Search(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runSearch);
+}
+
+HRESULT Cyclic(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runCyclic);
+}
+
+HRESULT Scan(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runScan);
+}
+
+HRESULT Rop(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runRop);
+}
+
+HRESULT Nearpc(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runNearpc);
+}
+
+HRESULT Distance(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runDistance);
+}
+
+HRESULT Dumpargs(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runDumpargs);
+}
+
+HRESULT Hex2ptr(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runHex2ptr);
+}
+
+HRESULT Stub(IDebugClient* client, PCSTR args) {
+    return executeCommand(client, args, runStub);
+}
+
+HRESULT Nextcall(IDebugClient* client, PCSTR args) {
+    const std::string fullArgs = std::string("nextcall ") + (args != nullptr ? args : "");
+    return executeCommand(client, fullArgs.c_str(), runExecution);
+}
+
+HRESULT Nextret(IDebugClient* client, PCSTR args) {
+    const std::string fullArgs = std::string("nextret ") + (args != nullptr ? args : "");
+    return executeCommand(client, fullArgs.c_str(), runExecution);
+}
+
+HRESULT Stepout(IDebugClient* client, PCSTR args) {
+    const std::string fullArgs = std::string("stepout ") + (args != nullptr ? args : "");
+    return executeCommand(client, fullArgs.c_str(), runExecution);
+}
 
 HRESULT WefHelp(IDebugClient* client, PCSTR args) {
     return executeCommand(client, args, runHelp);

@@ -1,17 +1,43 @@
 #include "mutation.hpp"
 
 #include "instruction.hpp"
+#include "config.hpp"
 
 #include <array>
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <limits>
+#include <mutex>
 #include <string_view>
 #include <vector>
 
 namespace wef {
 
 namespace {
+
+struct SavedPatch {
+    ULONG process = 0;
+    ULONG systemProcess = 0;
+    ULONG64 address = 0;
+    std::vector<unsigned char> before;
+    std::vector<unsigned char> after;
+};
+
+std::vector<SavedPatch>& patchStore() {
+    static std::vector<SavedPatch> patches;
+    return patches;
+}
+
+std::mutex& patchMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+bool processIdentity(DbgSession& session, ULONG& process, ULONG& systemProcess) {
+    return SUCCEEDED(session.systemObjects()->GetCurrentProcessId(&process)) &&
+        SUCCEEDED(session.systemObjects()->GetCurrentProcessSystemId(&systemProcess));
+}
 
 bool evalAddress(DbgSession& session, std::string_view text, ULONG64& value) {
     return session.evaluate(text, value) || parseNumber(text, value);
@@ -24,14 +50,6 @@ bool requireLiveUserTarget(DbgSession& session, const Output& out, std::string_v
         return false;
     }
     return true;
-}
-
-bool parseCount(std::string_view text, ULONG64& value) {
-    const std::string copy(text);
-    const int base = copy.starts_with("0x") || copy.starts_with("0X") ? 16 : 10;
-    char* end = nullptr;
-    value = std::strtoull(copy.c_str(), &end, base);
-    return end != nullptr && end != copy.c_str() && *end == '\0';
 }
 
 bool hexValue(char ch, unsigned char& value) {
@@ -88,14 +106,52 @@ std::vector<unsigned char> littleEndianBytes(ULONG64 value, ULONG width) {
 }
 
 bool writeBytes(DbgSession& session, const Output& out, ULONG64 address, const std::vector<unsigned char>& bytes) {
+    std::lock_guard<std::mutex> lock(patchMutex());
     if (bytes.empty()) {
         out.error("no bytes to write\n");
         return false;
     }
-    if (bytes.size() > std::numeric_limits<ULONG>::max()) {
+    if (bytes.size() > std::min<ULONG64>(configGetNumber("patch.max_size", 1048576), 16 * 1024 * 1024) ||
+        address > std::numeric_limits<ULONG64>::max() - bytes.size()) {
         out.error("patch is too large\n");
         return false;
     }
+
+    SavedPatch saved;
+    saved.address = address;
+    saved.before.resize(bytes.size());
+    saved.after = bytes;
+    ULONG originalRead = 0;
+    if (!processIdentity(session, saved.process, saved.systemProcess) ||
+        FAILED(session.readVirtual(address, saved.before.data(), static_cast<ULONG>(bytes.size()), &originalRead)) ||
+        originalRead != bytes.size()) {
+        out.error("could not save original bytes; patch was not applied\n");
+        return false;
+    }
+
+    const auto rollback = [&]() {
+        ULONG restored = 0;
+        const HRESULT restoreHr = session.writeVirtual(address, saved.before.data(), static_cast<ULONG>(saved.before.size()), &restored);
+        std::vector<unsigned char> verify(saved.before.size());
+        ULONG read = 0;
+        const bool ok = SUCCEEDED(restoreHr) && restored == saved.before.size() &&
+            SUCCEEDED(session.readVirtual(address, verify.data(), static_cast<ULONG>(verify.size()), &read)) &&
+            read == verify.size() && verify == saved.before;
+        if (ok) {
+            out.warning("original bytes restored after failed patch\n");
+        } else {
+            ULONG captured = 0;
+            std::vector<unsigned char> actual(saved.after.size());
+            if (SUCCEEDED(session.readVirtual(address, actual.data(), static_cast<ULONG>(actual.size()), &captured)) && captured == actual.size()) {
+                saved.after = std::move(actual);
+            }
+            if (patchStore().size() >= 128) {
+                patchStore().erase(patchStore().begin());
+            }
+            patchStore().push_back(saved);
+            out.error("rollback failed; inspect target memory and patch history before continuing\n");
+        }
+    };
 
     ULONG written = 0;
     const HRESULT hr = session.writeVirtual(address, bytes.data(), static_cast<ULONG>(bytes.size()), &written);
@@ -103,6 +159,7 @@ bool writeBytes(DbgSession& session, const Output& out, ULONG64 address, const s
         out.error(
             "write failed at " + formatAddress(address) + ": " + formatHResult(hr) +
             " (" + std::to_string(written) + "/" + std::to_string(bytes.size()) + " bytes)\n");
+        rollback();
         return false;
     }
 
@@ -115,9 +172,63 @@ bool writeBytes(DbgSession& session, const Output& out, ULONG64 address, const s
         &read);
     if (FAILED(readHr) || static_cast<size_t>(read) != bytes.size() || verification != bytes) {
         out.error("write verification failed at " + formatAddress(address) + "\n");
+        rollback();
         return false;
     }
+    if (patchStore().size() >= 128) {
+        out.warning("patch history full; oldest saved patch discarded\n");
+        patchStore().erase(patchStore().begin());
+    }
+    patchStore().push_back(std::move(saved));
     return true;
+}
+
+HRESULT patchHistory(DbgSession& session, const Output& out, bool revert, bool all) {
+    std::lock_guard<std::mutex> lock(patchMutex());
+    ULONG process = 0;
+    ULONG systemProcess = 0;
+    if (!processIdentity(session, process, systemProcess)) {
+        out.error("process identity unavailable\n");
+        return S_OK;
+    }
+    auto& patches = patchStore();
+    size_t matched = 0;
+    for (size_t i = patches.size(); i > 0; --i) {
+        auto& patch = patches[i - 1];
+        if (patch.process != process || patch.systemProcess != systemProcess) {
+            continue;
+        }
+        ++matched;
+        if (!revert) {
+            out.line(formatAddress(patch.address) + "  " + std::to_string(patch.before.size()) + " bytes (newest first)");
+            continue;
+        }
+        std::vector<unsigned char> current(patch.after.size());
+        ULONG read = 0;
+        if (FAILED(session.readVirtual(patch.address, current.data(), static_cast<ULONG>(current.size()), &read)) ||
+            read != current.size() || current != patch.after) {
+            out.error("saved patch differs from current memory at " + formatAddress(patch.address) + "; revert stopped\n");
+            return S_OK;
+        }
+        ULONG written = 0;
+        const HRESULT hr = session.writeVirtual(patch.address, patch.before.data(), static_cast<ULONG>(patch.before.size()), &written);
+        read = 0;
+        if (FAILED(hr) || written != patch.before.size() ||
+            FAILED(session.readVirtual(patch.address, current.data(), static_cast<ULONG>(current.size()), &read)) ||
+            read != current.size() || current != patch.before) {
+            out.error("patch revert failed at " + formatAddress(patch.address) + "\n");
+            return S_OK;
+        }
+        out.line("Restored " + std::to_string(patch.before.size()) + " bytes at " + formatAddress(patch.address));
+        patches.erase(patches.begin() + static_cast<std::ptrdiff_t>(i - 1));
+        if (!all) {
+            break;
+        }
+    }
+    if (matched == 0) {
+        out.line("No saved patches for the current process.");
+    }
+    return S_OK;
 }
 
 void patchUsage(const Output& out) {
@@ -125,6 +236,7 @@ void patchUsage(const Output& out) {
     out.line("  !wef.patch byte|word|dword|qword <addr> <value>");
     out.line("  !wef.patch string <addr> <text> [-z]");
     out.line("  !wef.patch hex <addr> <hex-bytes>");
+    out.line("  !wef.patch list|revert [all]          (patch/nop/stub history)");
 }
 
 void nopUsage(const Output& out) {
@@ -184,6 +296,17 @@ bool flagMask(std::string_view name, ULONG64& mask) {
 }
 
 HRESULT runPatch(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (!args.empty() && (args[0] == "list" || args[0] == "revert")) {
+        const bool revert = args[0] == "revert";
+        if (args.size() > 2 || (args.size() == 2 && (!revert || args[1] != "all"))) {
+            patchUsage(out);
+            return S_OK;
+        }
+        if (revert && !requireLiveUserTarget(session, out, "patch revert")) {
+            return S_OK;
+        }
+        return patchHistory(session, out, revert, args.size() == 2);
+    }
     if (args.size() < 3) {
         patchUsage(out);
         return S_OK;
@@ -213,6 +336,10 @@ HRESULT runPatch(DbgSession& session, const Output& out, const std::vector<std::
             args[0] == "byte" ? 1 :
             args[0] == "word" ? 2 :
             args[0] == "dword" ? 4 : 8;
+        if (width < 8 && (value >> (width * 8)) != 0) {
+            out.error("value does not fit the selected patch width\n");
+            return S_OK;
+        }
         bytes = littleEndianBytes(value, width);
     } else if (args[0] == "string") {
         bool zeroTerminate = false;
@@ -256,6 +383,11 @@ HRESULT runNop(DbgSession& session, const Output& out, const std::vector<std::st
     if (!requireLiveUserTarget(session, out, "nop")) {
         return S_OK;
     }
+    const ULONG machine = session.effectiveProcessor();
+    if (machine != IMAGE_FILE_MACHINE_AMD64 && machine != IMAGE_FILE_MACHINE_I386) {
+        out.error("nop requires an x86/x64 target\n");
+        return S_OK;
+    }
 
     ULONG64 address = 0;
     std::string_view ipName;
@@ -266,14 +398,16 @@ HRESULT runNop(DbgSession& session, const Output& out, const std::vector<std::st
 
     ULONG64 byteCount = 0;
     bool explicitCount = false;
+    bool instructionCount = false;
     bool gotAddress = false;
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i] == "--n" || args[i] == "-n" || args[i] == "--b" || args[i] == "-b") {
-            if (i + 1 >= args.size() || !parseCount(args[++i], byteCount)) {
+            if (i + 1 >= args.size() || !parseDecimalCount(args[++i], byteCount)) {
                 nopUsage(out);
                 return S_OK;
             }
             explicitCount = true;
+            instructionCount = args[i - 1] == "--n" || args[i - 1] == "-n";
             continue;
         }
 
@@ -281,6 +415,7 @@ HRESULT runNop(DbgSession& session, const Output& out, const std::vector<std::st
         if (parseLengthToken(args[i], parsed)) {
             byteCount = parsed;
             explicitCount = true;
+            instructionCount = false;
             continue;
         }
         if (!gotAddress && evalAddress(session, args[i], parsed)) {
@@ -292,15 +427,23 @@ HRESULT runNop(DbgSession& session, const Output& out, const std::vector<std::st
         return S_OK;
     }
 
-    if (!explicitCount) {
-        DecodedInstruction instruction;
-        if (!decodeInstruction(session, address, instruction)) {
-            out.error("could not determine instruction size at " + formatAddress(address) + "\n");
+    if (!explicitCount || instructionCount) {
+        const ULONG64 count = explicitCount ? byteCount : 1;
+        if (count == 0 || count > 65536) {
+            out.error("instruction count must be between 1 and 65536\n");
             return S_OK;
         }
-        byteCount = instruction.length;
+        byteCount = 0;
+        for (ULONG64 i = 0; i < count; ++i) {
+            DecodedInstruction instruction;
+            if (session.control()->GetInterrupt() == S_OK || !decodeInstruction(session, address + byteCount, instruction)) {
+                out.error("could not determine instruction size at " + formatAddress(address + byteCount) + "\n");
+                return S_OK;
+            }
+            byteCount += instruction.length;
+        }
     }
-    if (byteCount == 0 || byteCount > std::numeric_limits<ULONG>::max()) {
+    if (byteCount == 0 || byteCount > std::min<ULONG64>(configGetNumber("patch.max_size", 1048576), 16 * 1024 * 1024)) {
         out.error("invalid nop byte count\n");
         return S_OK;
     }
@@ -313,6 +456,51 @@ HRESULT runNop(DbgSession& session, const Output& out, const std::vector<std::st
     out.field("Address", formatAddress(address));
     out.field("Written", std::to_string(byteCount) + " bytes");
     return S_OK;
+}
+
+HRESULT runStub(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    ULONG64 address = 0;
+    ULONG64 value = 0;
+    if (args.empty() || args.size() > 2 || !evalAddress(session, args[0], address) ||
+        (args.size() == 2 && !evalAddress(session, args[1], value))) {
+        out.line("usage: !wef.stub <function-entry> [integer-return-value] (x64, default return: 0)");
+        return S_OK;
+    }
+    if (!requireLiveUserTarget(session, out, "stub")) {
+        return S_OK;
+    }
+    if (session.effectiveProcessor() != IMAGE_FILE_MACHINE_AMD64) {
+        out.error("stub requires an x64 target\n");
+        return S_OK;
+    }
+    std::vector<unsigned char> bytes = {0x48, 0xb8}; // mov rax, imm64; ret
+    const auto immediate = littleEndianBytes(value, 8);
+    bytes.insert(bytes.end(), immediate.begin(), immediate.end());
+    bytes.push_back(0xc3);
+    if (writeBytes(session, out, address, bytes)) {
+        out.line("Stubbed " + formatAddress(address) + " to return 0x" + formatHex(value));
+        out.line("Use !wef.patch revert to restore the 11 original bytes.");
+    }
+    return S_OK;
+}
+
+HRESULT runExecution(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
+    if (args.empty()) {
+        return E_INVALIDARG;
+    }
+    const std::string command = args[0] == "nextcall" ? "pc" : args[0] == "nextret" ? "pt" : "gu";
+    if (args.size() != 1) {
+        out.line("usage: !wef." + args[0]);
+        return S_OK;
+    }
+    if (!requireLiveUserTarget(session, out, args[0])) {
+        return S_OK;
+    }
+    const HRESULT hr = session.control()->Execute(DEBUG_OUTCTL_ALL_CLIENTS, command.c_str(), DEBUG_EXECUTE_DEFAULT);
+    if (FAILED(hr)) {
+        out.error(args[0] + " failed: " + formatHResult(hr) + "\n");
+    }
+    return hr;
 }
 
 HRESULT runSkipi(DbgSession& session, const Output& out, const std::vector<std::string>& args) {
@@ -331,7 +519,7 @@ HRESULT runSkipi(DbgSession& session, const Output& out, const std::vector<std::
     bool gotAddress = false;
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i] == "-n" || args[i] == "--n") {
-            if (i + 1 >= args.size() || !parseCount(args[++i], count) || count == 0) {
+            if (i + 1 >= args.size() || !parseDecimalCount(args[++i], count) || count == 0 || count > 65536) {
                 skipiUsage(out);
                 return S_OK;
             }
@@ -351,7 +539,8 @@ HRESULT runSkipi(DbgSession& session, const Output& out, const std::vector<std::
     const ULONG64 original = current;
     for (ULONG64 i = 0; i < count; ++i) {
         DecodedInstruction instruction;
-        if (!decodeInstruction(session, current, instruction)) {
+        if (session.control()->GetInterrupt() == S_OK || !decodeInstruction(session, current, instruction) ||
+            current > std::numeric_limits<ULONG64>::max() - instruction.length) {
             out.error("could not determine instruction size at " + formatAddress(current) + "\n");
             return S_OK;
         }

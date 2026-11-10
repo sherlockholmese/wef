@@ -99,6 +99,7 @@
     <ClCompile Include="src\context.cpp" />
     <ClCompile Include="src\dbg_session.cpp" />
     <ClCompile Include="src\extension.cpp" />
+    <ClCompile Include="src\exploit.cpp" />
     <ClCompile Include="src\heap.cpp" />
     <ClCompile Include="src\instruction.cpp" />
     <ClCompile Include="src\memory.cpp" />
@@ -118,6 +119,7 @@
     <ClInclude Include="src\config.hpp" />
     <ClInclude Include="src\context.hpp" />
     <ClInclude Include="src\dbg_session.hpp" />
+    <ClInclude Include="src\exploit.hpp" />
     <ClInclude Include="src\heap.hpp" />
     <ClInclude Include="src\instruction.hpp" />
     <ClInclude Include="src\memory.hpp" />

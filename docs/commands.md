@@ -2,6 +2,8 @@
 
 This page lists WEF commands by category. Canonical commands use the `!wef.` namespace and do not require aliases.
 
+The [GEF/pwndbg parity reference](parity.md) covers typed searches, pointer/gadget scans, navigation, call arguments, execution helpers, patch undo, stubs, and the limits of Windows allocator coverage.
+
 ## Top-Level Commands
 
 ```text
@@ -176,16 +178,17 @@ Results include buttons for:
 ## Pattern Commands
 
 ```text
-!wef.pattern create <length>
-!wef.pattern offset <value|ascii> [L<max-length>]
+!wef.pattern create [-n <width>] [-a <alphabet>] [--legacy] <length>
+!wef.pattern offset [-n <width>] [--legacy] <value|str:text> [L<max-length>]
+!wef.cyclic [-n <width>] [-a <alphabet>] [<length>|-l <value>]
 ```
 
 ### `!wef.pattern create`
 
-Creates a GEF/metasploit-style cyclic pattern:
+Creates a pwntools-compatible De Bruijn pattern. The default unique subsequence width is the target pointer size; select the same width when generating and searching:
 
 ```text
-!wef.pattern create 512
+!wef.pattern create -n 4 512
 ```
 
 ### `!wef.pattern offset`
@@ -193,9 +196,12 @@ Creates a GEF/metasploit-style cyclic pattern:
 Finds the offset of an ASCII token or numeric value inside the cyclic pattern.
 
 ```text
-!wef.pattern offset Aa3A L8192
-!wef.pattern offset 0x41336141 L8192
+!wef.pattern offset -n 4 str:daaa L1000
+!wef.pattern offset -n 4 0x61616164 L1000
+!wef.pattern offset --legacy 0x41336141 L1000
 ```
+
+`--legacy` is required for old WEF/Metasploit patterns beginning `Aa0Aa1`. Both endian orders are searched, with short lookups flagged as potentially ambiguous. `str:` forces literal lookup for tokens that resemble registers or expressions. Pattern creation and lookup are bounded by `pattern.max_length` and a 16 MiB hard limit. `-n` accepts 1–8; `-a` must contain unique characters.
 
 ## PE Security
 

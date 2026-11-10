@@ -44,3 +44,17 @@ EXPORTS
     colors
     ttd
     config
+    search
+    cyclic
+    scan
+    rop
+    nearpc
+    distance
+    dumpargs
+    hex2ptr
+    stub
+    nextcall
+    nextret
+    stepout
+    regs
+    heap

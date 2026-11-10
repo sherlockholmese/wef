@@ -47,7 +47,9 @@ heap.vis.max_segments = 16
 heap.vis.width = 80
 heap.stats.top_count = 5
 pattern.max_length = 8192
+patch.max_size = 1048576
 search.max_hits = 80
+scan.max_bytes = 268435456
 stack.count = 20
 stack.cookie.max_scan = 1048576
 regs.annotate = true
@@ -164,7 +166,15 @@ Maximum bytes scanned above the stack limit by `!wef.stack cookie`. Override a s
 
 ### `pattern.max_length`
 
-Maximum cyclic pattern length for `!wef.pattern create` and default search length for `!wef.pattern offset`.
+Maximum cyclic pattern creation/search length and default lookup bound for `!wef.pattern` and `!wef.cyclic`. Default: 8192 bytes, hard limit: 16 MiB. Search and creation must use the same subsequence width (`-n`).
+
+### `patch.max_size`
+
+Maximum bytes in one patch/nop/stub write. Default: 1048576 bytes, hard limit: 16 MiB. Successful writes retain their original bytes for `!wef.patch revert`; history retains the most recent 128 operations.
+
+### `scan.max_bytes`
+
+Maximum primary bytes read by a pointer or gadget scan. Default: 268435456 (256 MiB). When the limit is reached, output identifies truncation. Use a module/range selector or increase the limit for larger scans. Look-ahead bytes used at scan-window boundaries are additional to this count.
 
 ## TTD Settings
 

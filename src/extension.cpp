@@ -184,3 +184,59 @@ WEF_EXPORT HRESULT CALLBACK ttd(IDebugClient* client, PCSTR args) {
 WEF_EXPORT HRESULT CALLBACK config(IDebugClient* client, PCSTR args) {
     return wef::commands::Config(client, args);
 }
+
+WEF_EXPORT HRESULT CALLBACK search(IDebugClient* client, PCSTR args) {
+    return wef::commands::Search(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK cyclic(IDebugClient* client, PCSTR args) {
+    return wef::commands::Cyclic(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK scan(IDebugClient* client, PCSTR args) {
+    return wef::commands::Scan(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK rop(IDebugClient* client, PCSTR args) {
+    return wef::commands::Rop(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK nearpc(IDebugClient* client, PCSTR args) {
+    return wef::commands::Nearpc(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK distance(IDebugClient* client, PCSTR args) {
+    return wef::commands::Distance(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK dumpargs(IDebugClient* client, PCSTR args) {
+    return wef::commands::Dumpargs(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK hex2ptr(IDebugClient* client, PCSTR args) {
+    return wef::commands::Hex2ptr(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK stub(IDebugClient* client, PCSTR args) {
+    return wef::commands::Stub(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK nextcall(IDebugClient* client, PCSTR args) {
+    return wef::commands::Nextcall(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK nextret(IDebugClient* client, PCSTR args) {
+    return wef::commands::Nextret(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK stepout(IDebugClient* client, PCSTR args) {
+    return wef::commands::Stepout(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK regs(IDebugClient* client, PCSTR args) {
+    return wef::commands::Registers(client, args);
+}
+
+WEF_EXPORT HRESULT CALLBACK heap(IDebugClient* client, PCSTR args) {
+    return wef::commands::Heaps(client, args);
+}

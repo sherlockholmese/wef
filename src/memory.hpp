@@ -15,6 +15,7 @@ struct MemoryWatch {
 HRESULT runTelescope(DbgSession& session, const Output& out, const std::vector<std::string>& args);
 HRESULT runHexdump(DbgSession& session, const Output& out, const std::vector<std::string>& args);
 HRESULT runSearchPattern(DbgSession& session, const Output& out, const std::vector<std::string>& args);
+HRESULT runSearch(DbgSession& session, const Output& out, const std::vector<std::string>& args);
 HRESULT runPrintFormat(DbgSession& session, const Output& out, const std::vector<std::string>& args);
 HRESULT runXorMemory(DbgSession& session, const Output& out, const std::vector<std::string>& args);
 HRESULT runMemory(DbgSession& session, const Output& out, const std::vector<std::string>& args);

@@ -2,6 +2,8 @@
 
 WEF is a native C++ WinDbg extension that brings GEF-like ergonomics to Windows debugging without replacing normal WinDbg workflows. It focuses on fast context views, readable memory inspection, heap exploration, exploit-development helpers, and Time Travel Debugging (TTD) event exploration.
 
+Start with the [GEF/pwndbg parity reference](parity.md) for command mappings and known gaps. The [Windows parity tests](../tests/README.md) cover the core helpers and NT heap decoding.
+
 ## Documentation Map
 
 - [Installation and loading](installation.md)

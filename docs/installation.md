@@ -85,13 +85,19 @@ Show configured alias mappings:
 !wef.aliases
 ```
 
-Installed aliases:
+Selected installed aliases (use `!wef.aliases` for the complete list):
 
 ```text
 ctx
 telescope
 hexdump
 search-pattern
+search
+cyclic
+scan
+rop
+nearpc
+dumpargs
 vmmap
 pattern
 checksec

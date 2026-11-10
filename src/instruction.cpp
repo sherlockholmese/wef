@@ -68,16 +68,24 @@ bool flagSet(ULONG64 flags, ULONG64 mask) {
 bool decodeInstruction(DbgSession& session, ULONG64 address, DecodedInstruction& decoded) {
     std::array<unsigned char, ZYDIS_MAX_INSTRUCTION_LENGTH> bytes = {};
     ULONG read = 0;
-    const HRESULT readHr = session.readVirtual(
+    session.readVirtual(
         address,
         bytes.data(),
         static_cast<ULONG>(bytes.size()),
         &read);
-    if (FAILED(readHr) || read == 0) {
+    if (read == 0) {
         return false;
     }
 
-    const bool is32Bit = session.effectiveProcessor() == IMAGE_FILE_MACHINE_I386 || session.pointerSize() == 4;
+    const ULONG machine = session.effectiveProcessor();
+    if (machine != IMAGE_FILE_MACHINE_I386 && machine != IMAGE_FILE_MACHINE_AMD64) {
+        return false;
+    }
+    return decodeInstructionBytes(bytes.data(), read, machine == IMAGE_FILE_MACHINE_I386, address, decoded);
+}
+
+bool decodeInstructionBytes(const void* bytes, size_t size, bool is32Bit, ULONG64 address,
+                            DecodedInstruction& decoded, std::string* text) {
     ZydisDecoder decoder = {};
     const ZyanStatus initStatus = ZydisDecoderInit(
         &decoder,
@@ -91,8 +99,8 @@ bool decodeInstruction(DbgSession& session, ULONG64 address, DecodedInstruction&
     ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT] = {};
     const ZyanStatus decodeStatus = ZydisDecoderDecodeFull(
         &decoder,
-        bytes.data(),
-        read,
+        bytes,
+        size,
         &instruction,
         operands);
     if (!ZYAN_SUCCESS(decodeStatus) || instruction.length == 0) {
@@ -101,11 +109,26 @@ bool decodeInstruction(DbgSession& session, ULONG64 address, DecodedInstruction&
 
     decoded = {};
     decoded.length = instruction.length;
+    decoded.addressWidth = instruction.address_width;
     decoded.conditionalBranch = instruction.meta.category == ZYDIS_CATEGORY_COND_BR;
     decoded.unconditionalBranch = instruction.meta.category == ZYDIS_CATEGORY_UNCOND_BR;
     decoded.call = instruction.meta.category == ZYDIS_CATEGORY_CALL;
     decoded.ret = instruction.meta.category == ZYDIS_CATEGORY_RET;
+    decoded.system = instruction.meta.category == ZYDIS_CATEGORY_INTERRUPT ||
+        instruction.meta.category == ZYDIS_CATEGORY_SYSCALL || instruction.meta.category == ZYDIS_CATEGORY_SYSRET ||
+        instruction.meta.category == ZYDIS_CATEGORY_SYSTEM || instruction.mnemonic == ZYDIS_MNEMONIC_UD2;
     decoded.condition = branchCondition(instruction.mnemonic);
+
+    if (text != nullptr) {
+        ZydisFormatter formatter = {};
+        char buffer[256] = {};
+        if (!ZYAN_SUCCESS(ZydisFormatterInit(&formatter, ZYDIS_FORMATTER_STYLE_INTEL)) ||
+            !ZYAN_SUCCESS(ZydisFormatterFormatInstruction(&formatter, &instruction, operands,
+                instruction.operand_count_visible, buffer, sizeof(buffer), address, nullptr))) {
+            return false;
+        }
+        *text = buffer;
+    }
 
     if (decoded.conditionalBranch || decoded.unconditionalBranch || decoded.call) {
         for (ZyanU8 i = 0; i < instruction.operand_count_visible; ++i) {
@@ -198,7 +221,7 @@ bool evaluateBranch(DbgSession& session, const DecodedInstruction& decoded, bool
             decoded.condition == BranchCondition::Counter16Zero ? "ecx" :
             decoded.condition == BranchCondition::Counter32Zero ? "ecx" :
             decoded.condition == BranchCondition::Counter64Zero ? "rcx" :
-            session.pointerSize() == 8 ? "rcx" : "ecx";
+            decoded.addressWidth == 64 ? "rcx" : "ecx";
         if (!session.readRegister(registerName, counter)) {
             return false;
         }
@@ -212,7 +235,8 @@ bool evaluateBranch(DbgSession& session, const DecodedInstruction& decoded, bool
             taken = (counter & counterMask) == 0;
             return true;
         }
-        const ULONG64 mask = session.pointerSize() == 8 ? ~0ULL : 0xffffffffULL;
+        const ULONG64 mask = decoded.addressWidth == 64 ? ~0ULL :
+            decoded.addressWidth == 16 ? 0xffffULL : 0xffffffffULL;
         const bool counterNonZero = ((counter - 1) & mask) != 0;
         taken =
             decoded.condition == BranchCondition::Loop ? counterNonZero :

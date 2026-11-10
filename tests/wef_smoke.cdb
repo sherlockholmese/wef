@@ -28,8 +28,8 @@ hexdump @rsp L80
 !wef.print_format --lang python -l 8 @rsp
 !wef.xor_memory display @rsp 8 hex:aa
 !wef.pattern create 32
-!wef.pattern search Aa3 L256
-!wef.pattern offset Aa3 L256
+!wef.pattern search --legacy Aa3 L256
+!wef.pattern offset --legacy Aa3 L256
 !wef.vmmap -contains @rsp L4
 !wef.xinfo @rsp
 !wef.xfiles

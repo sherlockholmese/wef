@@ -36,12 +36,16 @@ struct DecodedInstruction {
     bool unconditionalBranch = false;
     bool call = false;
     bool ret = false;
+    bool system = false;
     bool hasTarget = false;
     ULONG64 target = 0;
+    ULONG addressWidth = 0;
     BranchCondition condition = BranchCondition::None;
 };
 
 bool decodeInstruction(DbgSession& session, ULONG64 address, DecodedInstruction& decoded);
+bool decodeInstructionBytes(const void* bytes, size_t size, bool is32Bit, ULONG64 address,
+                            DecodedInstruction& decoded, std::string* text = nullptr);
 bool evaluateBranch(DbgSession& session, const DecodedInstruction& decoded, bool& taken);
 
 }
